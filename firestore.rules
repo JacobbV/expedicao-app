@@ -1,0 +1,77 @@
+rules_version = '2';
+// Regras do app Expedição (várias viagens, cadastro aberto).
+// Cada viagem guarda quem participa em memberIds (lista de uids) e o dono em owner.
+// Pode copiar este arquivo inteiro no console: não tem e-mail nenhum aqui.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function tripData(t) { return get(/databases/$(database)/documents/trips/$(t)).data; }
+    function member(t) { return signedIn() && me() in tripData(t).memberIds; }
+    function owner(t) { return signedIn() && tripData(t).owner == me(); }
+
+    // Perfil de cada conta (nome, moto padrão, preferências)
+    match /users/{u} {
+      allow read, write: if signedIn() && me() == u;
+    }
+
+    match /trips/{t} {
+      // Ver e listar só as viagens de que participa
+      allow read: if signedIn() && me() in resource.data.memberIds;
+      // Criar: quem cria é o dono e o único membro
+      allow create: if signedIn()
+        && request.resource.data.owner == me()
+        && request.resource.data.memberIds == [me()];
+      // Dono altera tudo; membro altera a viagem, menos dono, membros e convite;
+      // quem tem o código do convite pode entrar (só se acrescenta)
+      allow update: if signedIn() && (
+        resource.data.owner == me()
+        || (me() in resource.data.memberIds
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['owner', 'memberIds', 'members', 'invite']))
+        || (!(me() in resource.data.memberIds)
+            && request.resource.data.joinCode == resource.data.invite
+            && request.resource.data.memberIds == resource.data.memberIds.concat([me()])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'members', 'joinCode'])
+            && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me()]))
+      );
+      allow delete: if signedIn() && resource.data.owner == me();
+
+      // Perfil do piloto na viagem (id = uid): cada um o seu; o dono pode ajustar
+      match /riders/{r} {
+        allow read: if member(t);
+        allow write: if member(t) && (r == me() || owner(t));
+      }
+      // Checklist: cada um o seu
+      match /checklist/{r} {
+        allow read: if member(t);
+        allow write: if member(t) && r == me();
+      }
+      // Gastos da viagem: todos veem, cada um mexe nos que pagou
+      match /expenses/{id} {
+        allow read: if member(t);
+        allow create: if member(t) && request.resource.data.rider == me();
+        allow update: if member(t) && resource.data.rider == me() && request.resource.data.rider == me();
+        allow delete: if member(t) && resource.data.rider == me();
+      }
+      // Mapa, hospedagem, pendências e avisos: todos editam juntos
+      match /points/{id} { allow read, write: if member(t); }
+      match /lodging/{id} { allow read, write: if member(t); }
+      match /meta/{id} { allow read, write: if member(t); }
+      // Fotos: todos veem, cada um envia e apaga as suas
+      match /photos/{id} {
+        allow read: if member(t);
+        allow create: if member(t) && request.resource.data.rider == me();
+        allow update, delete: if member(t) && resource.data.rider == me();
+      }
+      match /photofull/{id} {
+        allow read: if member(t);
+        allow create: if member(t) && request.resource.data.rider == me();
+        allow update, delete: if member(t) && resource.data.rider == me();
+      }
+      // Meus gastos: só a própria conta
+      match /private/{u}/{document=**} {
+        allow read, write: if member(t) && me() == u;
+      }
+    }
+  }
+}
