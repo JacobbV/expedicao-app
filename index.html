@@ -3,42 +3,42 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Expedição · em construção</title>
-<meta name="description" content="Companheiro de viagem para expedições de moto: roteiro, abastecimento, gastos, checklist e roadbook na palma da mão.">
-<meta name="theme-color" content="#23282a">
+<title>Expedição · viagens de moto</title>
+<meta name="description" content="Companheiro de viagem para expedições de moto: roteiro por dias, abastecimento pela autonomia, tempo no caminho, gastos divididos e roadbook.">
+<meta name="theme-color" content="#0b6b3a">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Expedição">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800&family=Public+Sans:wght@400;600;700&display=swap">
-<style>
-  :root{--bg:#141817;--fg:#e6e9e4;--muted:#9aa49d;--stripe:#f0b627;--road:#ef4444;--card:#1c2120;--line:#313835;color-scheme:dark}
-  *{box-sizing:border-box}
-  body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:16px/1.55 "Public Sans",system-ui,sans-serif;padding:24px 16px}
-  main{max-width:560px;width:100%;display:grid;gap:20px}
-  .road{height:6px;background:repeating-linear-gradient(90deg,var(--stripe) 0 34px,transparent 34px 60px)}
-  h1{font:800 3rem/1 "Big Shoulders Display","Arial Narrow",sans-serif;text-transform:uppercase;margin:0}
-  h1 span{color:var(--stripe)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
-  ul{margin:8px 0 0;padding-left:20px}
-  small,.muted{color:var(--muted)}
-  .brand{font-weight:700;letter-spacing:.08em}
-  .brand b{color:#22d3ee}
-</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;700;800;900&family=Overpass+Mono:wght@500;700&family=Fraunces:opsz,wght@9..144,700;9..144,800&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<script>
+// Aplica o estilo salvo antes de desenhar (evita piscar)
+try { var s = localStorage.getItem("estilo"); if (s === "asfalto" || s === "trilha" || s === "placa") document.documentElement.dataset.estilo = s; } catch (e) {}
+</script>
 </head>
 <body>
-<main>
-  <div class="road"></div>
-  <h1>Expedição <span>em construção</span></h1>
-  <p>O companheiro de viagem para expedições de moto: monte o roteiro, saiba onde abastecer, divida os gastos e leve o roadbook na palma da mão, com ou sem sinal.</p>
-  <div class="card">
-    <b>O que vem por aí</b>
-    <ul>
-      <li>Minhas viagens: crie quantas expedições quiser e convide quem vai junto</li>
-      <li>Planejador: saída, destino e km por dia; o app divide em dias e sugere os pernoites</li>
-      <li>Roteiro, mapa, tempo, abastecimento, gastos, checklist, diário de bordo e roadbook</li>
-    </ul>
-  </div>
-  <p class="muted"><small>© 2026 <span class="brand">QYUDEV<b>.</b></span> · Expedição</small></p>
-</main>
+<div id="app">
+  <header class="top"><div class="wrap">
+    <a class="brand" href="#viagens"><span class="b1">Expedição</span><span class="b2" id="brandTrip"></span></a>
+    <button class="pill" id="syncPill" type="button" hidden><span class="dot"></span><span class="t"></span></button>
+  </div></header>
+  <main><div class="wrap" id="view"><p class="muted center pad">Carregando…</p></div></main>
+  <nav class="nav" id="nav" hidden aria-label="Menu"><div class="in">
+    <a href="#viagens" data-r="viagens"><svg viewBox="0 0 24 24"><path d="M9 4l-5 2v14l5-2 6 2 5-2V4l-5 2z"/><path d="M9 4v14M15 6v14"/></svg>Viagens</a>
+    <a href="#perfil" data-r="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Perfil</a>
+    <a href="#ajustes" data-r="ajustes"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Ajustes</a>
+  </div></nav>
+</div>
+<div id="layer"></div>
+<script src="js/version.js"></script>
+<script type="module" src="js/app.js"></script>
+<script>
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+</script>
 </body>
 </html>

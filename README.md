@@ -4,7 +4,7 @@
 
 > Nome provisório. Evolução do app [Expedição Chapada](https://github.com/JacobbV/expedicao-chapada), que continua separado, só para a viagem do Jacó e do Kaique.
 
-**Status:** em construção · **Versão atual:** 0.1.1 ([histórico](#histórico-de-versões))
+**Status:** em construção · **Versão atual:** 2.0.0-a ([histórico](#histórico-de-versões))
 
 ## O que o app vai ter
 
@@ -45,13 +45,23 @@ trips/{id}/private/{uid}/prep    meus gastos (só a própria conta)
 
 | Versão | Data | O que mudou |
 |---|---|---|
-| **0.1.1** | 13/11/2026 | Configuração do projeto Firebase `expedicao-app-3041f` em `firebase-config.js` |
+| **2.0.0-a** | 20/11/2026 | Primeira versão do app: cadastro e login (e-mail e senha ou Google, com “Esqueci minha senha”), **Minhas viagens**, **+ Nova viagem** (nome, quem vai, saída, destino, datas e a sua moto), página da viagem com contagem regressiva e pilotos, Perfil (moto, consumo e tanque; sair; excluir conta), Ajustes com os 3 estilos (**Placa**, Asfalto e Trilha) e créditos. Funciona offline |
+| 0.1.1 | 13/11/2026 | Configuração do projeto Firebase `expedicao-app-3041f` em `firebase-config.js` |
 | 0.1.0 | 06/11/2026 | Repositório criado: página “em construção”, regras do Firestore para várias viagens com convite por link, modelo do `firebase-config.js` e plano das versões |
 
 ## Créditos
 
-A lista completa de serviços e bibliotecas, com fonte e licença, entra junto com o app na versão 2.0 (OpenStreetMap, Leaflet, OSRM, Nominatim, Open-Meteo, Firebase, GitHub Pages, Google Fonts).
+| O quê | Para quê | Licença |
+|---|---|---|
+| [Firebase](https://firebase.google.com) | login e sincronização | serviço do Google |
+| [GitHub Pages](https://pages.github.com) | hospedagem | serviço do GitHub |
+| [Overpass](https://fonts.google.com/specimen/Overpass) (Delve Withrington) | fonte principal | SIL OFL 1.1 |
+| [Overpass Mono](https://fonts.google.com/specimen/Overpass+Mono) | números | SIL OFL 1.1 |
+| [Fraunces](https://fonts.google.com/specimen/Fraunces) (Undercase Type) | títulos do estilo Trilha | SIL OFL 1.1 |
+| [Google Fonts](https://fonts.google.com) | entrega das fontes | serviço do Google |
+
+Mapa, rotas e tempo (OpenStreetMap, Leaflet, OSRM, Nominatim, Open-Meteo) entram nos créditos quando chegarem ao app, na 2.0-c.
 
 ## Autor
 
-Feito por **Jacó** · [QyuDev](https://github.com/JacobbV) · © 2026
+Desenvolvido por **[QYUDEV.](https://jacobbv.github.io/)** · Jacó · © 2026
