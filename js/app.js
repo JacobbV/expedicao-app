@@ -285,30 +285,37 @@ function viewViagem(t) {
 
 /* ---------- convite ---------- */
 const inviteLink = code => `${location.origin}${location.pathname}#convite/${code}`;
-async function inviteSheet(t) {
+// Folha de envio de link: WhatsApp, copiar e compartilhar (usada no convite e no "Compartilhar o app")
+function linkSheet({ title, intro, link, msg, extra = "", init }) {
+  openSheet(`<h3>${title}</h3>
+    <p class="muted" style="margin:0">${intro}</p>
+    <div class="linkbox"><code>${esc(link)}</code></div>
+    <div class="grid2">
+      <a class="btn primary" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp</a>
+      <button class="btn" id="lkCopy">Copiar link</button>
+    </div>
+    ${navigator.share ? `<button class="btn block" id="lkShare">Compartilhar de outro jeito</button>` : ""}
+    ${extra}
+    <div class="actions"><button class="btn" data-close="1">Fechar</button></div>`, sh => {
+    sh.querySelector("#lkCopy").addEventListener("click", async () => { try { await navigator.clipboard.writeText(link); toast("Link copiado"); } catch (e) { toast("Não deu para copiar. Segure o link para copiar."); } });
+    sh.querySelector("#lkShare")?.addEventListener("click", () => navigator.share({ title: "Expedição", text: msg.replace(link, "").trim(), url: link }).catch(() => {}));
+    init?.(sh);
+  });
+}
+function inviteSheet(t) {
   const dono = t.owner === me();
   if (dono) store.ensureInvite(t).catch(() => {});
-  const draw = () => {
-    const link = inviteLink(t.invite), msg = `Bora pra “${t.name}”? Entra na viagem pelo Expedição: ${link}`;
-    openSheet(`<h3>Convidar pilotos</h3>
-      <p class="muted" style="margin:0">Quem abrir o link entra na viagem com a própria conta. Mande só para quem vai junto.</p>
-      <div class="linkbox"><code>${esc(link)}</code></div>
-      <div class="grid2">
-        <a class="btn primary" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp</a>
-        <button class="btn" id="ivCopy">Copiar link</button>
-      </div>
-      ${navigator.share ? `<button class="btn block" id="ivShare">Compartilhar de outro jeito</button>` : ""}
-      ${dono ? `<div class="note">Mandou para a pessoa errada? <button class="btn sm" id="ivNew" style="margin-left:6px">Trocar o link</button><br><span class="small muted">O link antigo para de funcionar. Quem já entrou continua na viagem.</span></div>` : ""}
-      <div class="actions"><button class="btn" data-close="1">Fechar</button></div>`, sh => {
-      sh.querySelector("#ivCopy").addEventListener("click", async () => { try { await navigator.clipboard.writeText(link); toast("Link copiado"); } catch (e) { toast("Não deu para copiar. Segure o link para copiar."); } });
-      sh.querySelector("#ivShare")?.addEventListener("click", () => navigator.share({ title: t.name, text: `Bora pra “${t.name}”? Entra na viagem pelo Expedição:`, url: link }).catch(() => {}));
-      sh.querySelector("#ivNew")?.addEventListener("click", async () => {
-        try { const code = await store.rotateInvite(t); t = { ...t, invite: code }; toast("Link novo criado"); draw(); }
-        catch (e) { toast("Não deu para trocar agora. Confira a internet."); }
-      });
-    });
-  };
-  draw();
+  const link = inviteLink(t.invite);
+  linkSheet({
+    title: "Convidar pilotos",
+    intro: "Quem abrir o link entra na viagem com a própria conta. Mande só para quem vai junto.",
+    link, msg: `Bora pra “${t.name}”? Entra na viagem pelo Expedição: ${link}`,
+    extra: dono ? `<div class="note">Mandou para a pessoa errada? <button class="btn sm" id="ivNew" style="margin-left:6px">Trocar o link</button><br><span class="small muted">O link antigo para de funcionar. Quem já entrou continua na viagem.</span></div>` : "",
+    init: sh => sh.querySelector("#ivNew")?.addEventListener("click", async () => {
+      try { const code = await store.rotateInvite(t); toast("Link novo criado"); inviteSheet({ ...t, invite: code }); }
+      catch (e) { toast("Não deu para trocar agora. Confira a internet."); }
+    }),
+  });
 }
 const inviteCache = {};
 function viewConvite(code) {
@@ -451,6 +458,7 @@ const CREDITS = [
   ["Overpass Mono", "https://fonts.google.com/specimen/Overpass+Mono", "números", "SIL OFL 1.1"],
   ["Fraunces", "https://fonts.google.com/specimen/Fraunces", "títulos do estilo Trilha (Undercase Type)", "SIL OFL 1.1"],
   ["Google Fonts", "https://fonts.google.com", "entrega das fontes", ""],
+  ["DejaVu Sans", "https://dejavu-fonts.github.io", "texto da imagem de pré-visualização do link", "licença livre DejaVu (Bitstream Vera)"],
 ];
 const qyuMark = () => `<a class="qyu" href="https://jacobbv.github.io/" target="_blank" rel="noopener">Desenvolvido por <b>QYUDEV.</b></a>`;
 const TEMAS = [["claro", "Claro"], ["escuro", "Escuro"], ["auto", "Do aparelho"]];
@@ -536,6 +544,7 @@ function openUserMenu() {
     <div class="uhead"><span class="avatar lg">${avatarInner()}</span><div class="who"><b>${esc(myName())}</b><small>${esc(u.email || "")}</small>${t ? `<small>Na viagem: ${esc(t.name)}</small>` : ""}</div><button class="x" data-close="1" aria-label="Fechar">×</button></div>
     <div class="ugrp">Sua conta</div>
     <a class="uitem" href="#perfil"><span class="ic">${ico("perfil")}</span>Perfil e moto<span class="v">${esc(st.profile?.moto || "")}</span></a>
+    ${t ? `<button class="uitem" data-act="invite" data-id="${t.id}"><span class="ic">${ico("pilotos")}</span>Convidar para esta viagem</button>` : ""}
     <div class="ugrp">Aparência</div>
     <div class="uitem" style="cursor:default"><span class="ic">${ico("lua")}</span>Tema${temaSeg(true)}</div>
     <a class="uitem" href="#ajustes"><span class="ic">${ico("pincel")}</span>Estilo e ajustes<span class="v">${ESTILO_NOME[getEstilo()]}</span></a>
@@ -550,10 +559,13 @@ function openUserMenu() {
   L.querySelectorAll("a.uitem").forEach(a => a.addEventListener("click", closeSheet));
 }
 $("#avatarBtn").addEventListener("click", openUserMenu);
-async function shareApp() {
-  const url = "https://jacobbv.github.io/expedicao-app/", text = "Expedição: o companheiro de viagem para expedições de moto.";
-  try { if (navigator.share) { await navigator.share({ title: "Expedição", text, url }); return; } } catch (e) { if (e?.name === "AbortError") return; }
-  try { await navigator.clipboard.writeText(url); toast("Link do app copiado"); } catch (e) { toast(url); }
+function shareApp() {
+  const link = "https://jacobbv.github.io/expedicao-app/";
+  linkSheet({
+    title: "Compartilhar o app",
+    intro: "Mande o Expedição para outros motociclistas. Cada um cria a conta e monta as próprias viagens.",
+    link, msg: `Conhece o Expedição? Planeja a viagem de moto por dias, mostra onde abastecer pela autonomia da moto e o tempo no caminho. É grátis: ${link}`,
+  });
 }
 
 /* =========================== AÇÕES =========================== */
@@ -567,7 +579,7 @@ document.addEventListener("click", async e => {
   else if (act === "tema") { setTema(b.dataset.v); b.closest(".seg")?.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); if (route === "ajustes") render(); }
   else if (act === "menuMini") { toggleMenu(); if (route === "ajustes") render(); }
   else if (act === "share") { closeSheet(); shareApp(); }
-  else if (act === "invite") { const t = tripById(id); if (t) inviteSheet(t); }
+  else if (act === "invite") { const t = tripById(id); if (t) { closeSheet(); inviteSheet(t); } }
   else if (act === "myMoto") { const t = tripById(id); if (t) motoSheet(t); }
   else if (act === "noPhoto") { try { await setPhoto(null); toast("Foto removida"); } catch (x) { toast("Não deu para tirar agora"); } }
   else if (act === "kick") {
