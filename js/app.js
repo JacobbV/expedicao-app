@@ -1,4 +1,4 @@
-// Expedição · telas (versão 2.0-a: entrada, perfil, Minhas viagens, nova viagem, ajustes)
+// Expedição · telas: entrada, Minhas viagens, viagem, perfil, ajustes, sobre e a navegação (menu lateral, abas e menu da conta)
 import { store, onChange, getState, newId, newCode, authMessage } from "./store.js";
 
 const $ = s => document.querySelector(s);
@@ -32,18 +32,46 @@ function openSheet(html, init) {
 }
 const closeSheet = () => { $("#layer").innerHTML = ""; };
 
-/* ---------- estilo ---------- */
-const getEstilo = () => { try { return localStorage.getItem("estilo") || "placa"; } catch (e) { return "placa"; } };
-function setEstilo(s) {
-  try { localStorage.setItem("estilo", s); } catch (e) {}
-  document.documentElement.dataset.estilo = s;
-  const tc = { placa: "#0b6b3a", asfalto: "#0d1011", trilha: "#3b2a1c" }[s];
+/* ---------- aparência: estilo, tema claro/escuro e menu recolhido ---------- */
+const ls = { get: (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
+const getEstilo = () => ls.get("estilo", "placa");
+const getTema = () => ls.get("tema", "auto");
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+function applyLook() {
+  const d = document.documentElement, e = getEstilo(), t = getTema();
+  d.dataset.estilo = e;
+  d.dataset.tema = e === "asfalto" || t === "escuro" || (t === "auto" && darkMQ.matches) ? "escuro" : "claro";
+  const tc = e === "asfalto" ? "#0d1011" : e === "trilha" ? (d.dataset.tema === "escuro" ? "#120d09" : "#3b2a1c") : "#0b6b3a";
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", tc);
 }
+function setEstilo(s) { ls.set("estilo", s); applyLook(); }
+function setTema(t) { ls.set("tema", t); applyLook(); }
+darkMQ.addEventListener?.("change", () => { if (getTema() === "auto") applyLook(); });
+function toggleMenu() { const mini = document.documentElement.dataset.menu !== "mini"; if (mini) document.documentElement.dataset.menu = "mini"; else delete document.documentElement.dataset.menu; ls.set("menu", mini ? "mini" : "aberto"); renderSide(); }
+
+/* ---------- ícones (desenhados para o app) ---------- */
+const IC = {
+  viagens: '<path d="M9 4l-5 2v14l5-2 6 2 5-2V4l-5 2z"/><path d="M9 4v14M15 6v14"/>',
+  inicio: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+  mais: '<path d="M12 5v14M5 12h14"/>',
+  perfil: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+  ajustes: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+  lua: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+  pincel: '<path d="M4 20c3 0 5-2 5-4.5S7.5 12 6 13.5 4 17 4 20z"/><path d="M9 14l11-11"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.5l6.8-4M8.6 13.5l6.8 4"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  sair: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4M6 12h11"/>',
+  recolher: '<path d="M15 6l-6 6 6 6"/>',
+  expandir: '<path d="M9 6l6 6-6 6"/>',
+  pilotos: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.6.9 2.6 2.6 3 5.2"/>',
+};
+const ico = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${IC[k] || ""}</svg>`;
+const MARK = '<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="7" style="fill:var(--logo-bg);stroke:var(--logo-fg)" stroke-width="2.4"/><path d="M16 25V9M9.5 15.5L16 9l6.5 6.5" style="stroke:var(--logo-fg)" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ESTILO_NOME = { placa: "Placa", asfalto: "Asfalto", trilha: "Trilha" };
 
 /* ---------- rotas ---------- */
-let route = "viagens", param = "";
-function parseHash() { const h = location.hash.slice(1) || "viagens"; [route, param = ""] = h.split("/"); }
+let route = "viagens", param = "", sub = "";
+function parseHash() { const h = location.hash.slice(1) || "viagens"; [route, param = "", sub = ""] = h.split("/"); }
 addEventListener("hashchange", () => { parseHash(); closeSheet(); render(); scrollTo(0, 0); });
 
 /* ---------- utilidades de viagem ---------- */
@@ -286,19 +314,37 @@ const CREDITS = [
   ["Google Fonts", "https://fonts.google.com", "entrega das fontes", ""],
 ];
 const qyuMark = () => `<a class="qyu" href="https://jacobbv.github.io/" target="_blank" rel="noopener">Desenvolvido por <b>QYUDEV.</b></a>`;
+const TEMAS = [["claro", "Claro"], ["escuro", "Escuro"], ["auto", "Do aparelho"]];
+const temaSeg = (curto) => `<div class="seg" role="group" aria-label="Tema">${TEMAS.map(([k, l]) => `<button type="button" data-act="tema" data-v="${k}" aria-pressed="${getTema() === k}" ${getEstilo() === "asfalto" ? "disabled" : ""}>${curto && k === "auto" ? "Auto" : l}</button>`).join("")}</div>`;
 function viewAjustes() {
   const e = getEstilo();
-  return `<div class="view">
-    <h2>Ajustes</h2>
-    <div class="cols"><div class="col">
+  return `<div class="view narrow">
+    <h2>Estilo e ajustes</h2>
     <div class="card">
       <h3>Estilo do app</h3>
       <div class="styles">${ESTILOS.map(([k, l, s]) => `<button type="button" data-act="estilo" data-v="${k}" aria-pressed="${e === k}"><div class="sw ${k}">${s}</div><div class="nm">${l}</div></button>`).join("")}</div>
-      <p class="muted small" style="margin:0">Placa: placa verde de rodovia. Asfalto: noite e faixa amarela. Trilha: papel e curvas de nível. Fica guardado neste aparelho.</p>
+      <p class="muted small" style="margin:0">Placa: placa verde de rodovia. Asfalto: noite e faixa amarela. Trilha: papel e curvas de nível.</p>
     </div>
     <div class="card">
-      <h3>Sobre</h3>
-      <p style="margin:0">O <b>Expedição</b> é um companheiro de viagem para expedições de moto: planeja a viagem por dias, avisa o que vem pela frente e guarda o que aconteceu. A navegação curva a curva fica com o Google Maps ou o Waze.</p>
+      <h3>Tema</h3>
+      ${temaSeg()}
+      <p class="muted small" style="margin:0">${e === "asfalto" ? "O estilo Asfalto é sempre escuro." : "“Do aparelho” acompanha o modo claro ou escuro do celular ou do computador."}</p>
+    </div>
+    <div class="card only-wide">
+      <h3>Menu lateral</h3>
+      <p class="muted small" style="margin:0">No computador o menu fica na lateral. Recolhido, mostra só os ícones e deixa mais espaço para a viagem.</p>
+      <div class="row"><button class="btn sm" data-act="menuMini">${document.documentElement.dataset.menu === "mini" ? "Mostrar menu completo" : "Recolher menu"}</button></div>
+    </div>
+    <p class="muted small" style="margin:0">Estilo, tema e menu ficam guardados neste aparelho.</p>
+  </div>`;
+}
+function viewSobre() {
+  return `<div class="view">
+    <h2>Sobre e créditos</h2>
+    <div class="cols"><div class="col">
+    <div class="card">
+      <div class="between" style="justify-content:flex-start"><span class="mark" style="width:44px;height:44px">${MARK}</span><h3>Expedição</h3></div>
+      <p style="margin:0">Companheiro de viagem para expedições de moto: planeja a viagem por dias, avisa o que vem pela frente e guarda o que aconteceu. A navegação curva a curva fica com o Google Maps ou o Waze.</p>
       <p class="muted small" style="margin:0">Versão ${esc(self.APP_VERSION || "")}${store.mode === "local" ? " · modo de teste neste aparelho" : ""}</p>
       <p style="margin:0">${qyuMark()}</p>
     </div>
@@ -306,10 +352,69 @@ function viewAjustes() {
     <div class="card">
       <h3>Créditos</h3>
       <ul class="credits">${CREDITS.map(([n, url, what, lic]) => `<li><a href="${url}" target="_blank" rel="noopener">${n}</a><span>${what}${lic ? ` · ${lic}` : ""}</span></li>`).join("")}</ul>
-      <p class="muted small" style="margin:0">Google é marca do Google LLC. Ícones desenhados para o app.</p>
+      <p class="muted small" style="margin:0">Google é marca do Google LLC. Ícones e marca desenhados para o app.</p>
     </div>
     </div></div>
   </div>`;
+}
+
+/* =========================== NAVEGAÇÃO =========================== */
+// Seções da viagem. Cada uma aparece no menu quando estiver pronta (roteiro, mapa, checklist e gastos chegam na 2.0-c).
+const TRIP_TABS = [["inicio", "Início", "inicio"]];
+const curTrip = () => ["viagem", "editar"].includes(route) ? tripById(param) : null;
+const initials = n => (n || "?").trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+function avatarInner() {
+  const u = S().user || {}, foto = S().profile?.foto || u.photoURL;
+  return foto ? `<img src="${esc(foto)}" alt="" referrerpolicy="no-referrer">` : esc(initials(myName()));
+}
+function renderSide() {
+  const side = $("#side"), st = S(), t = curTrip();
+  const list = sortTrips(st.trips).slice(0, 8);
+  const on = r => route === r ? " on" : "";
+  side.innerHTML = `
+    <a class="sbrand" href="#viagens" title="Minhas viagens"><span class="mark">${MARK}</span><span class="b1">Expedição</span></a>
+    <div class="sgrp">Viagens</div>
+    <a class="si${route === "viagens" ? " on" : ""}" href="#viagens" title="Minhas viagens">${ico("viagens")}<span class="lbl">Minhas viagens</span></a>
+    ${list.map(x => `<a class="si sub${t && t.id === x.id ? " on" : ""}" href="#viagem/${x.id}" title="${esc(x.name)}"><span class="dotc" style="--c:${tripColor(x)}">${esc(initials(x.name.replace(/^expedi[cç][aã]o\s+/i, "")).slice(0, 1))}</span><span class="lbl">${esc(x.name)}</span></a>`).join("")}
+    <a class="si sub${on("nova")}" href="#nova" title="Nova viagem">${ico("mais")}<span class="lbl">Nova viagem</span></a>
+    ${t ? `<div class="sgrp">${esc(t.name)}</div>${TRIP_TABS.map(([k, l, i]) => `<a class="si${(sub || "inicio") === k && route === "viagem" ? " on" : ""}" href="#viagem/${t.id}${k === "inicio" ? "" : "/" + k}" title="${l}">${ico(i)}<span class="lbl">${l}</span></a>`).join("")}` : ""}
+    <div class="sfoot">
+      <button class="si" data-act="menuMini" title="${document.documentElement.dataset.menu === "mini" ? "Mostrar menu" : "Recolher menu"}">${ico(document.documentElement.dataset.menu === "mini" ? "expandir" : "recolher")}<span class="lbl">Recolher menu</span></button>
+      ${qyuMark()}
+    </div>`;
+}
+function renderBottomNav() {
+  const nav = $("#nav"), t = curTrip(), tabs = t ? TRIP_TABS : [];
+  const show = tabs.length >= 2;
+  nav.hidden = !show; document.body.classList.toggle("has-nav", show);
+  nav.innerHTML = show ? `<div class="in">${tabs.map(([k, l, i]) => `<a class="${(sub || "inicio") === k ? "on" : ""}" href="#viagem/${t.id}${k === "inicio" ? "" : "/" + k}">${ico(i)}${l}</a>`).join("")}</div>` : "";
+}
+function openUserMenu() {
+  const st = S(), u = st.user, t = curTrip();
+  const L = $("#layer");
+  L.innerHTML = `<div class="backdrop light" data-close="1"></div>
+  <div class="umenu" role="dialog" aria-modal="true" aria-label="Sua conta">
+    <div class="uhead"><span class="avatar lg">${avatarInner()}</span><div class="who"><b>${esc(myName())}</b><small>${esc(u.email || "")}</small>${t ? `<small>Na viagem: ${esc(t.name)}</small>` : ""}</div><button class="x" data-close="1" aria-label="Fechar">×</button></div>
+    <div class="ugrp">Sua conta</div>
+    <a class="uitem" href="#perfil"><span class="ic">${ico("perfil")}</span>Perfil e moto<span class="v">${esc(st.profile?.moto || "")}</span></a>
+    <div class="ugrp">Aparência</div>
+    <div class="uitem" style="cursor:default"><span class="ic">${ico("lua")}</span>Tema${temaSeg(true)}</div>
+    <a class="uitem" href="#ajustes"><span class="ic">${ico("pincel")}</span>Estilo e ajustes<span class="v">${ESTILO_NOME[getEstilo()]}</span></a>
+    <div class="ugrp">O app</div>
+    <button class="uitem" data-act="share"><span class="ic">${ico("share")}</span>Compartilhar o app</button>
+    <a class="uitem" href="#sobre"><span class="ic">${ico("info")}</span>Sobre e créditos</a>
+    <div class="ugrp">Conta</div>
+    <button class="uitem bad" data-act="logout"><span class="ic">${ico("sair")}</span>Sair da conta</button>
+    <div class="ufoot">${store.mode === "local" ? "Modo de teste: tudo fica neste aparelho" : !st.online ? "Sem sinal: o que você fizer é salvo quando a internet voltar" : st.pending ? "Enviando para a nuvem…" : "Salvo na nuvem"} · versão ${esc(self.APP_VERSION || "")}</div>
+  </div>`;
+  L.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", closeSheet));
+  L.querySelectorAll("a.uitem").forEach(a => a.addEventListener("click", closeSheet));
+}
+$("#avatarBtn").addEventListener("click", openUserMenu);
+async function shareApp() {
+  const url = "https://jacobbv.github.io/expedicao-app/", text = "Expedição: o companheiro de viagem para expedições de moto.";
+  try { if (navigator.share) { await navigator.share({ title: "Expedição", text, url }); return; } } catch (e) { if (e?.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(url); toast("Link do app copiado"); } catch (e) { toast(url); }
 }
 
 /* =========================== AÇÕES =========================== */
@@ -320,7 +425,10 @@ document.addEventListener("click", async e => {
   else if (act === "forgot") forgotSheet();
   else if (act === "google") { try { await store.signInGoogle(); } catch (x) { const er = $("#lErr"); if (er) { er.textContent = authMessage(x); er.hidden = false; } } }
   else if (act === "estilo") { setEstilo(b.dataset.v); render(); }
-  else if (act === "logout") { loginTab = "entrar"; await store.signOut(); location.hash = "#viagens"; }
+  else if (act === "tema") { setTema(b.dataset.v); b.closest(".seg")?.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); if (route === "ajustes") render(); }
+  else if (act === "menuMini") { toggleMenu(); if (route === "ajustes") render(); }
+  else if (act === "share") { closeSheet(); shareApp(); }
+  else if (act === "logout") { closeSheet(); loginTab = "entrar"; await store.signOut(); location.hash = "#viagens"; }
   else if (act === "delTrip") {
     const t = tripById(id); if (!t) return;
     openSheet(`<h3>Apagar “${esc(t.name)}”?</h3><p class="muted" style="margin:0">A viagem some para todos os pilotos. Não dá para desfazer.</p>
@@ -341,30 +449,35 @@ document.addEventListener("click", async e => {
 });
 
 /* =========================== DESENHO =========================== */
-function render() {
-  const st = S(), view = $("#view"), nav = $("#nav");
-  if (!st.ready) return;
-  if (!st.user) {
-    $(".top").hidden = true; nav.hidden = true;
-    view.innerHTML = viewLogin(); bindLogin(); return;
-  }
-  $(".top").hidden = false; nav.hidden = false;
-  const t = ["viagem", "editar"].includes(route) ? tripById(param) : null;
-  $("#brandTrip").textContent = t ? t.name.replace(/^expedi[cç][aã]o\s+/i, "") : "";
-  const pill = $("#syncPill");
+function syncTop() {
+  const st = S(), pill = $("#syncPill"); if (!pill) return;
   pill.hidden = store.mode === "local";
   pill.classList.toggle("off", !st.online || st.pending);
   pill.querySelector(".t").textContent = !st.online ? "Sem sinal" : st.pending ? "Enviando…" : "Sincronizado";
-  nav.querySelectorAll("a").forEach(a => a.classList.toggle("on", a.dataset.r === route || (a.dataset.r === "viagens" && ["viagem", "nova", "editar"].includes(route))));
+  pill.title = pill.querySelector(".t").textContent;
+}
+function render() {
+  const st = S(), view = $("#view");
+  if (!st.ready) return;
+  const logged = !!st.user;
+  $(".top").hidden = !logged; $("#side").hidden = !logged; $("#avatarBtn").hidden = !logged;
+  document.body.classList.toggle("has-side", logged);
+  if (!logged) { $("#nav").hidden = true; document.body.classList.remove("has-nav"); view.innerHTML = viewLogin(); bindLogin(); return; }
+  const t = curTrip();
+  $(".top .brand .mark").innerHTML = MARK;
+  $("#brandTrip").textContent = t ? t.name.replace(/^expedi[cç][aã]o\s+/i, "") : "";
+  $(".top .brand").classList.toggle("intrip", !!t);
+  $("#avatarBtn").innerHTML = avatarInner();
+  syncTop(); renderSide(); renderBottomNav();
   if (route === "nova") { view.innerHTML = viewNova(); bindNova(); }
   else if (route === "editar") { view.innerHTML = t ? viewNova(t) : viewViagem(null); if (t) bindNova(t); }
   else if (route === "viagem") view.innerHTML = viewViagem(t);
   else if (route === "perfil") { view.innerHTML = viewPerfil(); bindPerfil(); }
   else if (route === "ajustes") view.innerHTML = viewAjustes();
+  else if (route === "sobre") view.innerHTML = viewSobre();
   else view.innerHTML = viewViagens();
 }
 // Não redesenha enquanto a pessoa digita num formulário (evita perder o que foi escrito)
 onChange(() => { const a = document.activeElement; if (a && a.closest("form") && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName) && S().user) { syncTop(); return; } render(); });
-function syncTop() { const st = S(), pill = $("#syncPill"); if (!pill) return; pill.classList.toggle("off", !st.online || st.pending); pill.querySelector(".t").textContent = !st.online ? "Sem sinal" : st.pending ? "Enviando…" : "Sincronizado"; }
-setEstilo(getEstilo());
+applyLook();
 parseHash();

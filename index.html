@@ -17,24 +17,25 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;700;800;900&family=Overpass+Mono:wght@500;700&family=Fraunces:opsz,wght@9..144,700;9..144,800&display=swap">
 <link rel="stylesheet" href="css/app.css">
 <script>
-// Aplica o estilo salvo antes de desenhar (evita piscar)
-try { var s = localStorage.getItem("estilo"); if (s === "asfalto" || s === "trilha" || s === "placa") document.documentElement.dataset.estilo = s; } catch (e) {}
+// Aplica estilo, tema e menu salvos antes de desenhar (evita piscar)
+try {
+  var d = document.documentElement, s = localStorage.getItem("estilo"), t = localStorage.getItem("tema") || "auto";
+  if (s === "asfalto" || s === "trilha" || s === "placa") d.dataset.estilo = s;
+  d.dataset.tema = t === "escuro" || (t === "auto" && matchMedia("(prefers-color-scheme: dark)").matches) ? "escuro" : "claro";
+  if (localStorage.getItem("menu") === "mini") d.dataset.menu = "mini";
+} catch (e) {}
 </script>
 </head>
 <body>
 <div id="app">
+  <aside class="side" id="side" hidden aria-label="Menu lateral"></aside>
   <header class="top"><div class="wrap">
-    <a class="brand" href="#viagens"><span class="b1">Expedição</span><span class="b2" id="brandTrip"></span></a>
+    <a class="brand" href="#viagens" aria-label="Início"><span class="mark" aria-hidden="true"></span><span class="b1">Expedição</span><span class="b2" id="brandTrip"></span></a>
     <button class="pill" id="syncPill" type="button" hidden><span class="dot"></span><span class="t"></span></button>
+    <button class="avatar" id="avatarBtn" type="button" aria-label="Sua conta e preferências" hidden></button>
   </div></header>
   <main><div class="wrap" id="view"><p class="muted center pad">Carregando…</p></div></main>
-  <nav class="nav" id="nav" hidden aria-label="Menu"><div class="in">
-    <a class="nbrand" href="#viagens"><span class="b1">Expedição</span></a>
-    <a href="#viagens" data-r="viagens"><svg viewBox="0 0 24 24"><path d="M9 4l-5 2v14l5-2 6 2 5-2V4l-5 2z"/><path d="M9 4v14M15 6v14"/></svg>Viagens</a>
-    <a href="#perfil" data-r="perfil"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Perfil</a>
-    <a href="#ajustes" data-r="ajustes"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Ajustes</a>
-    <div class="nfoot"><a class="qyu" href="https://jacobbv.github.io/" target="_blank" rel="noopener">Desenvolvido por <b>QYUDEV.</b></a></div>
-  </div></nav>
+  <nav class="nav" id="nav" hidden aria-label="Seções da viagem"></nav>
 </div>
 <div id="layer"></div>
 <script src="js/version.js"></script>

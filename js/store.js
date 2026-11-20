@@ -44,7 +44,7 @@ function localStore() {
   const save = () => { try { localStorage.setItem(K, JSON.stringify(db)); } catch (e) {} };
   const refresh = () => {
     const u = db.session && db.users[db.session];
-    state.user = u ? { uid: u.uid, email: u.email, displayName: u.name, provider: "password" } : null;
+    state.user = u ? { uid: u.uid, email: u.email, displayName: u.name, photoURL: "", provider: "password" } : null;
     state.profile = u ? u.profile || null : null;
     state.trips = u ? Object.values(db.trips).filter(t => t.memberIds.includes(u.uid)) : [];
     state.ready = true; emit();
@@ -87,7 +87,7 @@ function cloudStore() {
     au.getRedirectResult(auth).catch(e => { state.error = authMessage(e); emit(); });
     au.onAuthStateChanged(auth, user => {
       unsubTrips?.(); unsubProfile?.(); unsubTrips = unsubProfile = null;
-      state.user = user ? { uid: user.uid, email: user.email, displayName: user.displayName, provider: user.providerData?.[0]?.providerId || "password" } : null;
+      state.user = user ? { uid: user.uid, email: user.email, displayName: user.displayName, photoURL: user.photoURL || "", provider: user.providerData?.[0]?.providerId || "password" } : null;
       state.profile = null; state.trips = [];
       if (!user) { state.ready = true; emit(); return; }
       unsubProfile = fs.onSnapshot(fs.doc(db, "users", user.uid), s => { state.profile = s.exists() ? s.data() : { nome: user.displayName || "" }; emit(); }, () => {});

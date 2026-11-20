@@ -4,7 +4,7 @@
 
 > Nome provisório. Evolução do app [Expedição Chapada](https://github.com/JacobbV/expedicao-chapada), que continua separado, só para a viagem do Jacó e do Kaique.
 
-**Status:** em construção · **Versão atual:** 2.0.2 ([histórico](#histórico-de-versões))
+**Status:** em construção · **Versão atual:** 2.0.3 ([histórico](#histórico-de-versões))
 
 ## O que o app vai ter
 
@@ -45,7 +45,8 @@ trips/{id}/private/{uid}/prep    meus gastos (só a própria conta)
 
 | Versão | Data | O que mudou |
 |---|---|---|
-| **2.0.2** | 20/11/2026 | Atualização mais confiável: o app sempre confere no servidor se há arquivo novo, para não abrir com parte da versão nova e parte da antiga |
+| **2.0.3** | 20/11/2026 | Nova navegação: menu lateral que recolhe no computador (com a lista das suas viagens), sem barra embaixo no computador; foto ou iniciais no canto abrindo o menu da conta (perfil e moto, tema, estilo, compartilhar, sobre e créditos, sair); tema **claro, escuro ou do aparelho** para Placa e Trilha; telas próprias de “Estilo e ajustes” e “Sobre e créditos”; marca do app (placa com seta) |
+| 2.0.2 | 20/11/2026 | Atualização mais confiável: o app sempre confere no servidor se há arquivo novo, para não abrir com parte da versão nova e parte da antiga |
 | 2.0.1 | 20/11/2026 | Tela larga (computador e tablet deitado): menu na lateral com “Desenvolvido por QYUDEV.”, viagens em grade, página da viagem, Perfil e Ajustes em duas colunas e entrada com apresentação ao lado do formulário. No celular nada muda. Links do estilo Asfalto na cor certa |
 | 2.0.0-a | 20/11/2026 | Primeira versão do app: cadastro e login (e-mail e senha ou Google, com “Esqueci minha senha”), **Minhas viagens**, **+ Nova viagem** (nome, quem vai, saída, destino, datas e a sua moto), página da viagem com contagem regressiva e pilotos, Perfil (moto, consumo e tanque; sair; excluir conta), Ajustes com os 3 estilos (**Placa**, Asfalto e Trilha) e créditos. Funciona offline |
 | 0.1.1 | 13/11/2026 | Configuração do projeto Firebase `expedicao-app-3041f` em `firebase-config.js` |
