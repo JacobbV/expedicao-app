@@ -4,7 +4,7 @@
 
 > Nome provisório. Evolução do app [Expedição Chapada](https://github.com/JacobbV/expedicao-chapada), que continua separado, só para a viagem do Jacó e do Kaique.
 
-**Status:** em construção · **Versão atual:** 2.0.3 ([histórico](#histórico-de-versões))
+**Status:** em construção · **Versão atual:** 2.0.4 ([histórico](#histórico-de-versões))
 
 ## O que o app vai ter
 
@@ -32,6 +32,7 @@ App web instalável (PWA), em JavaScript sem build, hospedado no GitHub Pages, c
 
 ```
 users/{uid}                      perfil da conta
+invites/{codigo}                 convite: viagem, dono, nome e datas (abre só pelo código)
 trips/{id}                       viagem: nome, datas, dias, owner, memberIds, members, invite
 trips/{id}/riders/{uid}          piloto e moto na viagem
 trips/{id}/checklist/{uid}       checklist de cada um
@@ -45,7 +46,8 @@ trips/{id}/private/{uid}/prep    meus gastos (só a própria conta)
 
 | Versão | Data | O que mudou |
 |---|---|---|
-| **2.0.3** | 20/11/2026 | Nova navegação: menu lateral que recolhe no computador (com a lista das suas viagens), sem barra embaixo no computador; foto ou iniciais no canto abrindo o menu da conta (perfil e moto, tema, estilo, compartilhar, sobre e créditos, sair); tema **claro, escuro ou do aparelho** para Placa e Trilha; telas próprias de “Estilo e ajustes” e “Sobre e créditos”; marca do app (placa com seta) |
+| **2.0.4** | 20/11/2026 | **Convite por link:** WhatsApp, copiar ou compartilhar; quem abre vê a viagem e quem convidou, informa a moto e entra (se ainda não tiver conta, cria e o convite abre em seguida). Dono troca o link e remove pilotos; piloto edita a própria moto e pode sair da viagem. **Foto do perfil** (guardada pequena, aparece para os outros pilotos). Regras do Firestore atualizadas (`invites` e novas permissões de piloto) |
+| 2.0.3 | 20/11/2026 | Nova navegação: menu lateral que recolhe no computador (com a lista das suas viagens), sem barra embaixo no computador; foto ou iniciais no canto abrindo o menu da conta (perfil e moto, tema, estilo, compartilhar, sobre e créditos, sair); tema **claro, escuro ou do aparelho** para Placa e Trilha; telas próprias de “Estilo e ajustes” e “Sobre e créditos”; marca do app (placa com seta) |
 | 2.0.2 | 20/11/2026 | Atualização mais confiável: o app sempre confere no servidor se há arquivo novo, para não abrir com parte da versão nova e parte da antiga |
 | 2.0.1 | 20/11/2026 | Tela larga (computador e tablet deitado): menu na lateral com “Desenvolvido por QYUDEV.”, viagens em grade, página da viagem, Perfil e Ajustes em duas colunas e entrada com apresentação ao lado do formulário. No celular nada muda. Links do estilo Asfalto na cor certa |
 | 2.0.0-a | 20/11/2026 | Primeira versão do app: cadastro e login (e-mail e senha ou Google, com “Esqueci minha senha”), **Minhas viagens**, **+ Nova viagem** (nome, quem vai, saída, destino, datas e a sua moto), página da viagem com contagem regressiva e pilotos, Perfil (moto, consumo e tanque; sair; excluir conta), Ajustes com os 3 estilos (**Placa**, Asfalto e Trilha) e créditos. Funciona offline |

@@ -15,6 +15,8 @@ addEventListener("online", () => { state.online = true; emit(); });
 addEventListener("offline", () => { state.online = false; emit(); });
 
 export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+// Dados públicos do convite (quem tem o link vê só isto antes de entrar)
+const inviteData = t => ({ trip: t.id, owner: t.owner, ownerNome: (t.members || {})[t.owner]?.nome || "", name: t.name || "", origem: t.origem || "", destino: t.destino || "", inicio: t.inicio || "", fim: t.fim || "" });
 export const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(9)), b => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
 
 // Mensagens de erro do login em português
@@ -40,7 +42,7 @@ export const authMessage = e => AUTH_MSG[e?.code] || "Não deu certo agora. Tent
 function localStore() {
   const K = "expedicao-local";
   let db = {}; try { db = JSON.parse(localStorage.getItem(K) || "{}"); } catch (e) {}
-  db.users ||= {}; db.trips ||= {}; db.session ||= null;
+  db.users ||= {}; db.trips ||= {}; db.invites ||= {}; db.session ||= null;
   const save = () => { try { localStorage.setItem(K, JSON.stringify(db)); } catch (e) {} };
   const refresh = () => {
     const u = db.session && db.users[db.session];
@@ -66,10 +68,25 @@ function localStore() {
     async resetPassword() {},
     async signOut() { db.session = null; save(); refresh(); },
     async saveProfile(p) { const u = db.users[db.session]; u.profile = { ...u.profile, ...p }; if (p.nome) u.name = p.nome; save(); refresh(); },
-    async createTrip(t) { db.trips[t.id] = t; save(); refresh(); return t.id; },
+    async createTrip(t) { db.trips[t.id] = t; db.invites[t.invite] = inviteData(t); save(); refresh(); return t.id; },
     async updateTrip(id, patch) { Object.assign(db.trips[id], patch); save(); refresh(); },
-    async deleteTrip(id) { delete db.trips[id]; save(); refresh(); },
-    async deleteAccount() { const uid = db.session; Object.values(db.trips).forEach(t => { if (t.owner === uid) delete db.trips[t.id]; }); delete db.users[uid]; db.session = null; save(); refresh(); },
+    async deleteTrip(id) { const t = db.trips[id]; if (t) delete db.invites[t.invite]; delete db.trips[id]; save(); refresh(); },
+    async ensureInvite(t) { db.invites[t.invite] = inviteData(t); save(); },
+    async rotateInvite(t) { const code = newCode(); delete db.invites[t.invite]; db.trips[t.id].invite = code; db.invites[code] = inviteData({ ...t, invite: code }); save(); refresh(); return code; },
+    async getInvite(code) { return db.invites[code] || null; },
+    async joinTrip(inv, code, mine) {
+      const t = db.trips[inv.trip], uid = db.session; if (!t || t.invite !== code) throw { code: "permission-denied" };
+      if (!t.memberIds.includes(uid)) t.memberIds.push(uid);
+      t.members[uid] = { ...mine, papel: "piloto" }; t.joinCode = code; save(); refresh();
+    },
+    async updateMyMember(id, patch) { const t = db.trips[id], uid = db.session; t.members[uid] = { ...t.members[uid], ...patch }; save(); refresh(); },
+    async removeMember(id, uid) { const t = db.trips[id]; t.memberIds = t.memberIds.filter(x => x !== uid); delete t.members[uid]; save(); refresh(); },
+    async leaveTrip(id) { return this.removeMember(id, db.session); },
+    async deleteAccount() {
+      const uid = db.session;
+      Object.values(db.trips).forEach(t => { if (t.owner === uid) { delete db.invites[t.invite]; delete db.trips[t.id]; } else if (t.memberIds.includes(uid)) { t.memberIds = t.memberIds.filter(x => x !== uid); delete t.members[uid]; } });
+      delete db.users[uid]; db.session = null; save(); refresh();
+    },
   };
 }
 
@@ -122,12 +139,46 @@ function cloudStore() {
       await fs.setDoc(fs.doc(db, "users", auth.currentUser.uid), p, { merge: true });
       if (p.nome) await au.updateProfile(auth.currentUser, { displayName: p.nome });
     }),
-    createTrip: t => w(async () => { const { id, ...data } = t; fs.setDoc(fs.doc(db, "trips", id), { ...data, criado: fs.serverTimestamp() }); return id; }),
+    // Grava a viagem e o convite juntos (sem esperar a internet: sincroniza quando voltar)
+    createTrip: t => w(async () => {
+      const { id, ...data } = t, b = fs.writeBatch(db);
+      b.set(fs.doc(db, "trips", id), { ...data, criado: fs.serverTimestamp() });
+      b.set(fs.doc(db, "invites", t.invite), inviteData(t));
+      b.commit().catch(e => console.error(e)); return id;
+    }),
     updateTrip: (id, patch) => w(() => fs.setDoc(fs.doc(db, "trips", id), patch, { merge: true })),
-    deleteTrip: id => w(() => fs.deleteDoc(fs.doc(db, "trips", id))),
+    deleteTrip: id => w(() => {
+      const t = state.trips.find(x => x.id === id), b = fs.writeBatch(db);
+      b.delete(fs.doc(db, "trips", id)); if (t?.invite) b.delete(fs.doc(db, "invites", t.invite));
+      return b.commit();
+    }),
+    ensureInvite: t => w(() => fs.setDoc(fs.doc(db, "invites", t.invite), inviteData(t))),
+    rotateInvite: t => w(async () => {
+      const code = newCode(), b = fs.writeBatch(db);
+      b.update(fs.doc(db, "trips", t.id), { invite: code });
+      b.delete(fs.doc(db, "invites", t.invite));
+      b.set(fs.doc(db, "invites", code), inviteData({ ...t, invite: code }));
+      await b.commit(); return code;
+    }),
+    getInvite: code => w(async () => { const s = await fs.getDoc(fs.doc(db, "invites", code)); return s.exists() ? s.data() : null; }),
+    // Entrar: acrescenta o próprio uid e os próprios dados; as regras conferem o código
+    joinTrip: (inv, code, mine) => w(() => {
+      const uid = auth.currentUser.uid;
+      return fs.updateDoc(fs.doc(db, "trips", inv.trip), { memberIds: fs.arrayUnion(uid), [`members.${uid}`]: { ...mine, papel: "piloto" }, joinCode: code });
+    }),
+    updateMyMember: (id, patch) => w(() => {
+      const uid = auth.currentUser.uid, upd = {};
+      Object.entries(patch).forEach(([k, v]) => { upd[`members.${uid}.${k}`] = v ?? null; });
+      return fs.updateDoc(fs.doc(db, "trips", id), upd);
+    }),
+    removeMember: (id, uid) => w(() => fs.updateDoc(fs.doc(db, "trips", id), { memberIds: fs.arrayRemove(uid), [`members.${uid}`]: fs.deleteField() })),
+    leaveTrip: id => w(() => { const uid = auth.currentUser.uid; return fs.updateDoc(fs.doc(db, "trips", id), { memberIds: fs.arrayRemove(uid), [`members.${uid}`]: fs.deleteField() }); }),
     deleteAccount: () => w(async () => {
       const uid = auth.currentUser.uid;
-      for (const t of state.trips.filter(t => t.owner === uid)) await fs.deleteDoc(fs.doc(db, "trips", t.id));
+      for (const t of state.trips) {
+        if (t.owner === uid) { const b = fs.writeBatch(db); b.delete(fs.doc(db, "trips", t.id)); if (t.invite) b.delete(fs.doc(db, "invites", t.invite)); await b.commit(); }
+        else await fs.updateDoc(fs.doc(db, "trips", t.id), { memberIds: fs.arrayRemove(uid), [`members.${uid}`]: fs.deleteField() });
+      }
       await fs.deleteDoc(fs.doc(db, "users", uid));
       await au.deleteUser(auth.currentUser);
     }),

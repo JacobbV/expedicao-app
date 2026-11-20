@@ -15,6 +15,18 @@ service cloud.firestore {
       allow read, write: if signedIn() && me() == u;
     }
 
+    // Convite: quem tem o link (o código) vê nome, datas e quem convidou antes de entrar.
+    // Não dá para listar convites; só abrir um pelo código.
+    match /invites/{c} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create, update: if signedIn()
+        && request.resource.data.owner == me()
+        && getAfter(/databases/$(database)/documents/trips/$(request.resource.data.trip)).data.owner == me()
+        && getAfter(/databases/$(database)/documents/trips/$(request.resource.data.trip)).data.invite == c;
+      allow delete: if signedIn() && (resource == null || resource.data.owner == me());
+    }
+
     match /trips/{t} {
       // Ver e listar só as viagens de que participa
       allow read: if signedIn() && me() in resource.data.memberIds;
@@ -22,17 +34,30 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.owner == me()
         && request.resource.data.memberIds == [me()];
-      // Dono altera tudo; membro altera a viagem, menos dono, membros e convite;
-      // quem tem o código do convite pode entrar (só se acrescenta)
+      // Quem pode mudar a viagem:
       allow update: if signedIn() && (
+        // 1. o dono muda tudo
         resource.data.owner == me()
+        // 2. membro muda a viagem, menos dono, membros e convite
         || (me() in resource.data.memberIds
             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['owner', 'memberIds', 'members', 'invite']))
+        // 3. membro muda os próprios dados de piloto (moto, foto), sem mudar o papel
+        || (me() in resource.data.memberIds
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+            && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me()])
+            && request.resource.data.members[me()].papel == resource.data.members[me()].papel)
+        // 4. membro sai da viagem (o dono não sai: ele apaga a viagem)
+        || (me() in resource.data.memberIds && resource.data.owner != me()
+            && request.resource.data.memberIds == resource.data.memberIds.removeAll([me()])
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'members'])
+            && !(me() in request.resource.data.members))
+        // 5. quem tem o código do convite entra como piloto (só se acrescenta)
         || (!(me() in resource.data.memberIds)
             && request.resource.data.joinCode == resource.data.invite
             && request.resource.data.memberIds == resource.data.memberIds.concat([me()])
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds', 'members', 'joinCode'])
-            && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me()]))
+            && request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([me()])
+            && request.resource.data.members[me()].papel == 'piloto')
       );
       allow delete: if signedIn() && resource.data.owner == me();
 

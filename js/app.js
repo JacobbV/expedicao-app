@@ -105,6 +105,7 @@ function viewLogin() {
       <div class="srow"><span><span class="arr">↑</span>Tempo no caminho</span></div>
     </div>
     <div><h2>Expedição</h2><p class="lead muted" style="margin:6px 0 0">O companheiro de viagem para expedições de moto: planeje por dias, saiba onde abastecer e leve o roadbook na palma da mão.</p></div>
+    ${route === "convite" || ls.get("convitePendente", "") ? `<p class="note" style="margin:0"><b>Você recebeu um convite para uma viagem.</b> Entre ou crie sua conta e ele abre em seguida.</p>` : ""}
     </div><div class="lform">
     <div class="seg" role="tablist">${[["entrar", "Entrar"], ["criar", "Criar conta"]].map(([k, l]) => `<button type="button" data-act="ltab" data-v="${k}" aria-pressed="${loginTab === k}">${l}</button>`).join("")}</div>
     <form id="fLogin" novalidate>
@@ -229,7 +230,7 @@ function bindNova(edit) {
       } else {
         const id = newId();
         const trip = { id, name, tipo, origem, destino, inicio, fim, owner: me(), memberIds: [me()],
-          members: { [me()]: { nome: myName(), papel: "dono", ...moto } }, invite: newCode(), days: [], moeda: "BRL", avgSpeed: 65, schema: 2 };
+          members: { [me()]: { nome: myName(), papel: "dono", foto: S().profile?.fotoMini || S().user?.photoURL || "", ...moto } }, invite: newCode(), days: [], moeda: "BRL", avgSpeed: 65, schema: 2 };
         await store.createTrip(trip);
         if (moto.moto && !S().profile?.moto) store.saveProfile(moto).catch(() => {});
         toast("Viagem criada"); location.hash = `#viagem/${id}`;
@@ -239,9 +240,15 @@ function bindNova(edit) {
 }
 
 /* =========================== VIAGEM =========================== */
+function motoLine(m) {
+  return [m.moto || "moto não informada", m.consumo ? `${num(m.consumo, 1)} km/L` : "", m.tanque ? `${num(m.tanque, 1)} L` : "", m.consumo && m.tanque ? `~${num(m.consumo * m.tanque)} km por tanque` : ""].filter(Boolean).join(" · ");
+}
+const faceOf = (m, name) => m?.foto ? `<img src="${esc(m.foto)}" alt="">` : esc(initials(name));
 function viewViagem(t) {
-  if (!t) return `<div class="view"><div class="card empty"><h3>Viagem não encontrada</h3><p class="muted" style="margin:0">Ela pode ter sido apagada, ou você ainda não participa dela.</p><a class="btn" href="#viagens">Minhas viagens</a></div></div>`;
-  const ph = tripPhase(t), d = tripDays(t), dono = t.owner === me(), members = Object.entries(t.members || {});
+  if (!t) return `<div class="view"><div class="card empty"><h3>Viagem não encontrada</h3><p class="muted" style="margin:0">Ela pode ter sido apagada, você saiu dela, ou ainda não participa. Se recebeu um convite, abra o link de novo.</p><a class="btn" href="#viagens">Minhas viagens</a></div></div>`;
+  const ph = tripPhase(t), d = tripDays(t), dono = t.owner === me();
+  const members = Object.entries(t.members || {}).filter(([uid]) => (t.memberIds || []).includes(uid))
+    .sort((a, b) => (a[1].papel === "dono" ? -1 : b[1].papel === "dono" ? 1 : (a[1].nome || "").localeCompare(b[1].nome || "")));
   return `<div class="view">
     <a href="#viagens" class="small" style="text-decoration:none">← Minhas viagens</a>
     <div class="sign">
@@ -257,17 +264,137 @@ function viewViagem(t) {
     </div>
     <div class="card">
       <div class="between"><h3>Pilotos</h3><span class="tag-y">${members.length}</span></div>
-      ${members.map(([uid, m]) => `<div class="between" style="border-top:1px solid var(--line);padding-top:8px"><div><b>${esc(m.nome || "Piloto")}</b>${uid === me() ? ` <span class="muted small">(você)</span>` : ""}<div class="muted small">${esc(m.moto || "moto não informada")}${m.consumo ? ` · ${num(m.consumo, 1)} km/L` : ""}${m.tanque ? ` · ${num(m.tanque, 1)} L` : ""}${m.consumo && m.tanque ? ` · ~${num(m.consumo * m.tanque)} km por tanque` : ""}</div></div>${m.papel === "dono" ? `<span class="shield">DONO</span>` : ""}</div>`).join("")}
-      <p class="note">Em breve: convite por link para quem vai junto entrar na viagem.</p>
+      <div class="riders">${members.map(([uid, m]) => `<div class="rider">
+        <span class="avatar sm">${faceOf(m, m.nome)}</span>
+        <div class="rb"><b>${esc(m.nome || "Piloto")}</b>${uid === me() ? ` <span class="muted small">(você)</span>` : ""}<div class="muted small">${esc(motoLine(m))}</div></div>
+        ${m.papel === "dono" ? `<span class="shield">DONO</span>` : ""}
+        ${uid === me() ? `<button class="btn sm" data-act="myMoto" data-id="${t.id}">Minha moto</button>` : dono ? `<button class="btn sm danger" data-act="kick" data-id="${t.id}" data-uid="${uid}">Remover</button>` : ""}
+      </div>`).join("")}</div>
+      <button class="btn primary block" data-act="invite" data-id="${t.id}">+ Convidar pilotos</button>
+      ${members.length < 2 ? `<p class="muted small" style="margin:0">Mande o link para quem vai junto. Cada um entra com a própria conta e informa a moto, e a viagem passa a aparecer para todos.</p>` : ""}
     </div>
     </div><div class="col">
     <div class="card">
       <h3>Em breve nesta viagem</h3>
       <p class="muted" style="margin:0">Roteiro por dias, mapa, tempo no caminho, abastecimento pela autonomia de cada moto, gastos divididos, checklist, diário de bordo, segurança e roadbook para imprimir.</p>
     </div>
-    ${dono ? `<button class="btn danger" data-act="delTrip" data-id="${t.id}">Apagar viagem</button>` : ""}
+    ${dono ? `<button class="btn danger" data-act="delTrip" data-id="${t.id}">Apagar viagem</button>` : `<button class="btn danger" data-act="leave" data-id="${t.id}">Sair desta viagem</button>`}
     </div></div>
   </div>`;
+}
+
+/* ---------- convite ---------- */
+const inviteLink = code => `${location.origin}${location.pathname}#convite/${code}`;
+async function inviteSheet(t) {
+  const dono = t.owner === me();
+  if (dono) store.ensureInvite(t).catch(() => {});
+  const draw = () => {
+    const link = inviteLink(t.invite), msg = `Bora pra “${t.name}”? Entra na viagem pelo Expedição: ${link}`;
+    openSheet(`<h3>Convidar pilotos</h3>
+      <p class="muted" style="margin:0">Quem abrir o link entra na viagem com a própria conta. Mande só para quem vai junto.</p>
+      <div class="linkbox"><code>${esc(link)}</code></div>
+      <div class="grid2">
+        <a class="btn primary" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp</a>
+        <button class="btn" id="ivCopy">Copiar link</button>
+      </div>
+      ${navigator.share ? `<button class="btn block" id="ivShare">Compartilhar de outro jeito</button>` : ""}
+      ${dono ? `<div class="note">Mandou para a pessoa errada? <button class="btn sm" id="ivNew" style="margin-left:6px">Trocar o link</button><br><span class="small muted">O link antigo para de funcionar. Quem já entrou continua na viagem.</span></div>` : ""}
+      <div class="actions"><button class="btn" data-close="1">Fechar</button></div>`, sh => {
+      sh.querySelector("#ivCopy").addEventListener("click", async () => { try { await navigator.clipboard.writeText(link); toast("Link copiado"); } catch (e) { toast("Não deu para copiar. Segure o link para copiar."); } });
+      sh.querySelector("#ivShare")?.addEventListener("click", () => navigator.share({ title: t.name, text: `Bora pra “${t.name}”? Entra na viagem pelo Expedição:`, url: link }).catch(() => {}));
+      sh.querySelector("#ivNew")?.addEventListener("click", async () => {
+        try { const code = await store.rotateInvite(t); t = { ...t, invite: code }; toast("Link novo criado"); draw(); }
+        catch (e) { toast("Não deu para trocar agora. Confira a internet."); }
+      });
+    });
+  };
+  draw();
+}
+const inviteCache = {};
+function viewConvite(code) {
+  const c = inviteCache[code];
+  if (!c || c.loading) {
+    if (!c) { inviteCache[code] = { loading: true };
+      store.getInvite(code).then(inv => { inviteCache[code] = { inv }; }).catch(e => { inviteCache[code] = { err: e?.code || "erro" }; }).finally(() => { if (route === "convite") render(); }); }
+    return `<div class="view narrow"><p class="muted center pad">Abrindo o convite…</p></div>`;
+  }
+  const inv = c.inv;
+  if (!inv) return `<div class="view narrow"><div class="card empty"><h3>Convite não encontrado</h3><p class="muted" style="margin:0">${c.err === "unavailable" ? "Sem internet agora. Conecte-se e abra o link de novo." : "O link pode ter sido trocado pelo dono da viagem. Peça um link novo para quem te convidou."}</p><a class="btn" href="#viagens">Minhas viagens</a></div></div>`;
+  if (tripById(inv.trip)) return `<div class="view narrow"><div class="card empty"><h3>Você já está nessa viagem</h3><a class="btn primary" href="#viagem/${inv.trip}">Abrir “${esc(inv.name)}”</a></div></div>`;
+  const p = S().profile || {}, d = inv.inicio && inv.fim ? diffDays(inv.inicio, inv.fim) + 1 : null;
+  return `<div class="view narrow">
+    <div class="sign">
+      <div class="label" style="color:inherit;opacity:.8">${esc((inv.ownerNome || "Um piloto").split(" ")[0])} te convidou</div>
+      <div class="big">${esc(inv.name)}</div>
+      <div class="srow"><span><span class="arr">↑</span>${esc(inv.destino)}</span><span class="km">${fmtD(inv.inicio)}</span></div>
+      <div class="srow"><span><span class="arr">↓</span>${esc(inv.origem)}</span><span class="km">${fmtD(inv.fim)}</span></div>
+    </div>
+    <form id="fJoin" class="card">
+      <p style="margin:0">Saída de <b>${esc(inv.origem)}</b>${inv.inicio ? ` ${fmtDW(inv.inicio)}` : ""}${d ? `, ${d} ${d === 1 ? "dia" : "dias"}` : ""}. Ao entrar, você vê o roteiro e os outros pilotos veem você e sua moto.</p>
+      <div class="label">Sua moto nessa viagem</div>
+      <label class="field"><span>Modelo</span><input id="jMoto" value="${esc(p.moto || "")}" placeholder="Ex.: Honda CG 160 Titan"></label>
+      <div class="grid2">
+        <label class="field"><span>Consumo (km/L)</span><input id="jCons" inputmode="decimal" value="${p.consumo ?? ""}"></label>
+        <label class="field"><span>Tanque (L)</span><input id="jTanq" inputmode="decimal" value="${p.tanque ?? ""}"></label>
+      </div>
+      <p class="err" id="jErr" hidden></p>
+      <button class="btn primary block" id="jGo">Entrar na viagem</button>
+      <a class="btn block" href="#viagens">Agora não</a>
+    </form>
+  </div>`;
+}
+function bindConvite(code) {
+  const f = $("#fJoin"); if (!f) return;
+  f.addEventListener("submit", async e => {
+    e.preventDefault();
+    const inv = inviteCache[code]?.inv, er = $("#jErr"), go = $("#jGo"); er.hidden = true; go.disabled = true;
+    const p = S().profile || {};
+    const mine = { nome: myName(), moto: $("#jMoto").value.trim(), consumo: parseNum($("#jCons").value), tanque: parseNum($("#jTanq").value), foto: p.fotoMini || S().user?.photoURL || "" };
+    try {
+      await store.joinTrip(inv, code, mine);
+      if (mine.moto && !p.moto) store.saveProfile({ moto: mine.moto, consumo: mine.consumo, tanque: mine.tanque }).catch(() => {});
+      delete inviteCache[code]; toast(`Bem-vindo à “${inv.name}”`); location.hash = `#viagem/${inv.trip}`;
+    } catch (x) { er.textContent = x?.code === "permission-denied" ? "Esse link não vale mais. Peça um novo para quem te convidou." : "Não deu para entrar agora. Confira a internet e tente de novo."; er.hidden = false; go.disabled = false; }
+  });
+}
+function motoSheet(t) {
+  const m = (t.members || {})[me()] || {};
+  openSheet(`<h3>Minha moto nesta viagem</h3>
+    <form id="fMoto">
+      <label class="field"><span>Modelo</span><input id="mMoto" value="${esc(m.moto || "")}"></label>
+      <div class="grid2">
+        <label class="field"><span>Consumo (km/L)</span><input id="mCons" inputmode="decimal" value="${m.consumo ?? ""}"></label>
+        <label class="field"><span>Tanque (L)</span><input id="mTanq" inputmode="decimal" value="${m.tanque ?? ""}"></label>
+      </div>
+      <p class="err" id="mErr" hidden></p>
+      <div class="actions"><button type="button" class="btn" data-close="1">Cancelar</button><button class="btn primary">Salvar</button></div>
+    </form>`, sh => {
+    sh.querySelector("#fMoto").addEventListener("submit", async e => {
+      e.preventDefault();
+      try { await store.updateMyMember(t.id, { moto: sh.querySelector("#mMoto").value.trim(), consumo: parseNum(sh.querySelector("#mCons").value), tanque: parseNum(sh.querySelector("#mTanq").value) }); closeSheet(); toast("Moto salva"); }
+      catch (x) { const er = sh.querySelector("#mErr"); er.textContent = "Não deu para salvar agora."; er.hidden = false; }
+    });
+  });
+}
+
+/* ---------- foto do perfil (guardada pequena, sem precisar de armazenamento pago) ---------- */
+function shrinkImage(file, size, quality = .82) {
+  return new Promise((ok, fail) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const s = Math.min(img.width, img.height), c = document.createElement("canvas"); c.width = c.height = size;
+      c.getContext("2d").drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+      URL.revokeObjectURL(url); ok(c.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); fail(new Error("imagem")); };
+    img.src = url;
+  });
+}
+async function setPhoto(file) {
+  const foto = file ? await shrinkImage(file, 256) : "", fotoMini = file ? await shrinkImage(file, 72, .75) : "";
+  await store.saveProfile({ foto, fotoMini });
+  // atualiza o rostinho nas viagens de que participa
+  await Promise.all(S().trips.filter(t => (t.memberIds || []).includes(me())).map(t => store.updateMyMember(t.id, { foto: fotoMini }).catch(() => {})));
 }
 
 /* =========================== PERFIL =========================== */
@@ -277,6 +404,9 @@ function viewPerfil() {
     <h2>Perfil</h2>
     <div class="cols">
     <form id="fPerf" class="card">
+      <div class="phrow"><span class="avatar xl">${avatarInner()}</span>
+        <div class="row"><label class="btn sm">${p.foto || u.photoURL ? "Trocar foto" : "Pôr foto"}<input type="file" id="pFoto" accept="image/*" hidden></label>${p.foto ? `<button type="button" class="btn sm" data-act="noPhoto">Tirar foto</button>` : ""}</div>
+      </div>
       <label class="field"><span>Nome</span><input id="pNome" value="${esc(p.nome || u.displayName || "")}" required></label>
       <div class="label" style="margin-top:4px">Sua moto</div>
       <label class="field"><span>Modelo</span><input id="pMoto" value="${esc(p.moto || "")}" placeholder="Ex.: Honda CG 160 Titan"></label>
@@ -284,7 +414,7 @@ function viewPerfil() {
         <label class="field"><span>Consumo (km/L)</span><input id="pCons" inputmode="decimal" value="${p.consumo ?? ""}"></label>
         <label class="field"><span>Tanque (L)</span><input id="pTanq" inputmode="decimal" value="${p.tanque ?? ""}"></label>
       </div>
-      <small class="muted">Vem preenchido quando você cria uma viagem nova.</small>
+      <small class="muted">Vem preenchido quando você cria ou entra numa viagem. Para mudar a moto de uma viagem que já existe, use “Minha moto” dentro dela.</small>
       <button class="btn primary block">Salvar perfil</button>
     </form>
     <div class="card">
@@ -296,11 +426,20 @@ function viewPerfil() {
   </div>`;
 }
 function bindPerfil() {
+  $("#pFoto")?.addEventListener("change", async e => {
+    const f = e.target.files?.[0]; if (!f) return;
+    toast("Enviando foto…");
+    try { await setPhoto(f); toast("Foto atualizada"); } catch (x) { toast("Não deu para usar essa imagem"); }
+  });
   $("#fPerf")?.addEventListener("submit", async e => {
     e.preventDefault();
     const nome = $("#pNome").value.trim(); if (!nome) return;
-    await store.saveProfile({ nome, moto: $("#pMoto").value.trim(), consumo: parseNum($("#pCons").value), tanque: parseNum($("#pTanq").value) }).catch(() => toast("Não deu para salvar agora"));
-    toast("Perfil salvo");
+    try {
+      await store.saveProfile({ nome, moto: $("#pMoto").value.trim(), consumo: parseNum($("#pCons").value), tanque: parseNum($("#pTanq").value) });
+      // o nome também aparece para os outros pilotos
+      S().trips.filter(t => (t.members || {})[me()] && t.members[me()].nome !== nome).forEach(t => store.updateMyMember(t.id, { nome }).catch(() => {}));
+      toast("Perfil salvo");
+    } catch (x) { toast("Não deu para salvar agora"); }
   });
 }
 
@@ -428,16 +567,33 @@ document.addEventListener("click", async e => {
   else if (act === "tema") { setTema(b.dataset.v); b.closest(".seg")?.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); if (route === "ajustes") render(); }
   else if (act === "menuMini") { toggleMenu(); if (route === "ajustes") render(); }
   else if (act === "share") { closeSheet(); shareApp(); }
+  else if (act === "invite") { const t = tripById(id); if (t) inviteSheet(t); }
+  else if (act === "myMoto") { const t = tripById(id); if (t) motoSheet(t); }
+  else if (act === "noPhoto") { try { await setPhoto(null); toast("Foto removida"); } catch (x) { toast("Não deu para tirar agora"); } }
+  else if (act === "kick") {
+    const t = tripById(id), uid = b.dataset.uid, m = t?.members?.[uid]; if (!t) return;
+    openSheet(`<h3>Remover ${esc(m?.nome || "piloto")}?</h3><p class="muted" style="margin:0">A viagem some para essa pessoa. Ela só volta com um link de convite. Se quiser garantir, troque o link depois.</p>
+      <div class="actions"><button class="btn" data-close="1">Cancelar</button><button class="btn danger" id="cKick">Remover</button></div>`, sh => {
+      sh.querySelector("#cKick").addEventListener("click", async () => { closeSheet(); await store.removeMember(id, uid).then(() => toast("Piloto removido")).catch(() => toast("Não deu para remover agora")); });
+    });
+  }
+  else if (act === "leave") {
+    const t = tripById(id); if (!t) return;
+    openSheet(`<h3>Sair de “${esc(t.name)}”?</h3><p class="muted" style="margin:0">A viagem some da sua lista. Para voltar, peça um link de convite.</p>
+      <div class="actions"><button class="btn" data-close="1">Cancelar</button><button class="btn danger" id="cLeave">Sair da viagem</button></div>`, sh => {
+      sh.querySelector("#cLeave").addEventListener("click", async () => { closeSheet(); try { await store.leaveTrip(id); toast("Você saiu da viagem"); location.hash = "#viagens"; } catch (x) { toast("Não deu para sair agora"); } });
+    });
+  }
   else if (act === "logout") { closeSheet(); loginTab = "entrar"; await store.signOut(); location.hash = "#viagens"; }
   else if (act === "delTrip") {
     const t = tripById(id); if (!t) return;
-    openSheet(`<h3>Apagar “${esc(t.name)}”?</h3><p class="muted" style="margin:0">A viagem some para todos os pilotos. Não dá para desfazer.</p>
+    openSheet(`<h3>Apagar “${esc(t.name)}”?</h3><p class="muted" style="margin:0">A viagem e o link de convite somem para todos os pilotos. Não dá para desfazer.</p>
       <div class="actions"><button class="btn" data-close="1">Cancelar</button><button class="btn danger" id="cDel">Apagar viagem</button></div>`, sh => {
       sh.querySelector("#cDel").addEventListener("click", async () => { closeSheet(); await store.deleteTrip(id).catch(() => toast("Não deu para apagar agora")); toast("Viagem apagada"); location.hash = "#viagens"; });
     });
   }
   else if (act === "delAccount") {
-    openSheet(`<h3>Excluir sua conta?</h3><p class="muted" style="margin:0">Apaga sua conta, seu perfil e as viagens que você criou. Viagens de outros pilotos continuam com eles. Não dá para desfazer.</p>
+    openSheet(`<h3>Excluir sua conta?</h3><p class="muted" style="margin:0">Apaga sua conta, seu perfil e as viagens que você criou. Nas viagens dos outros, você sai e elas continuam com eles. Não dá para desfazer.</p>
       <p class="err" id="daErr" hidden></p>
       <div class="actions"><button class="btn" data-close="1">Cancelar</button><button class="btn danger" id="cDa">Excluir conta</button></div>`, sh => {
       sh.querySelector("#cDa").addEventListener("click", async () => {
@@ -462,7 +618,11 @@ function render() {
   const logged = !!st.user;
   $(".top").hidden = !logged; $("#side").hidden = !logged; $("#avatarBtn").hidden = !logged;
   document.body.classList.toggle("has-side", logged);
-  if (!logged) { $("#nav").hidden = true; document.body.classList.remove("has-nav"); view.innerHTML = viewLogin(); bindLogin(); return; }
+  if (!logged) {
+    if (route === "convite" && param) ls.set("convitePendente", param);
+    $("#nav").hidden = true; document.body.classList.remove("has-nav"); view.innerHTML = viewLogin(); bindLogin(); return;
+  }
+  const pend = ls.get("convitePendente", ""); if (pend) { ls.set("convitePendente", ""); try { localStorage.removeItem("convitePendente"); } catch (e) {} if (route !== "convite") { location.hash = `#convite/${pend}`; return; } }
   const t = curTrip();
   $(".top .brand .mark").innerHTML = MARK;
   $("#brandTrip").textContent = t ? t.name.replace(/^expedi[cç][aã]o\s+/i, "") : "";
@@ -475,6 +635,7 @@ function render() {
   else if (route === "perfil") { view.innerHTML = viewPerfil(); bindPerfil(); }
   else if (route === "ajustes") view.innerHTML = viewAjustes();
   else if (route === "sobre") view.innerHTML = viewSobre();
+  else if (route === "convite") { view.innerHTML = viewConvite(param); bindConvite(param); }
   else view.innerHTML = viewViagens();
 }
 // Não redesenha enquanto a pessoa digita num formulário (evita perder o que foi escrito)
