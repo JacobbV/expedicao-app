@@ -1,14 +1,10 @@
-// Configuração do Firebase do app Expedição.
-// Cole aqui o bloco firebaseConfig do console (Configurações do projeto → Seus apps → app web).
-// A apiKey pode ficar pública: quem protege os dados são as regras do Firestore.
-export const firebaseConfig = null;
-/* Exemplo do formato:
+// Configuração do Firebase do app Expedição (projeto expedicao-app-3041f).
+// Esta chave é pública por natureza: quem protege os dados são as regras do Firestore (firestore.rules).
 export const firebaseConfig = {
-  apiKey: "COLE_AQUI",
-  authDomain: "SEU-PROJETO.firebaseapp.com",
-  projectId: "SEU-PROJETO",
-  storageBucket: "SEU-PROJETO.firebasestorage.app",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:0000000000000000000000"
+  apiKey: "AIzaSyAFVZkBxnlI8ecwYXl5g3EUsbj0EDE_mqo",
+  authDomain: "expedicao-app-3041f.firebaseapp.com",
+  projectId: "expedicao-app-3041f",
+  storageBucket: "expedicao-app-3041f.firebasestorage.app",
+  messagingSenderId: "103113370421",
+  appId: "1:103113370421:web:a2916854d8d2fd14d67a7c"
 };
-*/

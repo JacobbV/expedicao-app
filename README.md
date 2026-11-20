@@ -4,7 +4,7 @@
 
 > Nome provisório. Evolução do app [Expedição Chapada](https://github.com/JacobbV/expedicao-chapada), que continua separado, só para a viagem do Jacó e do Kaique.
 
-**Status:** em construção · **Versão atual:** 0.1.0 ([histórico](#histórico-de-versões))
+**Status:** em construção · **Versão atual:** 0.1.1 ([histórico](#histórico-de-versões))
 
 ## O que o app vai ter
 
@@ -45,7 +45,8 @@ trips/{id}/private/{uid}/prep    meus gastos (só a própria conta)
 
 | Versão | Data | O que mudou |
 |---|---|---|
-| **0.1.0** | 06/11/2026 | Repositório criado: página “em construção”, regras do Firestore para várias viagens com convite por link, modelo do `firebase-config.js` e plano das versões |
+| **0.1.1** | 13/11/2026 | Configuração do projeto Firebase `expedicao-app-3041f` em `firebase-config.js` |
+| 0.1.0 | 06/11/2026 | Repositório criado: página “em construção”, regras do Firestore para várias viagens com convite por link, modelo do `firebase-config.js` e plano das versões |
 
 ## Créditos
 
