@@ -70,13 +70,14 @@ const sortTrips = list => [...list].sort((a, b) => {
 let loginTab = "entrar";
 function viewLogin() {
   const st = S();
-  return `<div class="login">
+  return `<div class="login"><div class="lhero">
     <div class="sign">
       <div class="srow"><span><span class="arr">↑</span>Roteiro por dias</span></div>
       <div class="srow"><span><span class="arr">↗</span>Abastecimento</span></div>
       <div class="srow"><span><span class="arr">↑</span>Tempo no caminho</span></div>
     </div>
     <div><h2>Expedição</h2><p class="lead muted" style="margin:6px 0 0">O companheiro de viagem para expedições de moto: planeje por dias, saiba onde abastecer e leve o roadbook na palma da mão.</p></div>
+    </div><div class="lform">
     <div class="seg" role="tablist">${[["entrar", "Entrar"], ["criar", "Criar conta"]].map(([k, l]) => `<button type="button" data-act="ltab" data-v="${k}" aria-pressed="${loginTab === k}">${l}</button>`).join("")}</div>
     <form id="fLogin" novalidate>
       ${loginTab === "criar" ? `<label class="field"><span>Seu nome</span><input id="lNome" autocomplete="name" required placeholder="Como os parceiros te chamam"></label>` : ""}
@@ -90,7 +91,7 @@ function viewLogin() {
     <button type="button" class="btn google block" data-act="google"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.7 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.9 6.1C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.7-6c-2.1 1.4-4.9 2.3-8.2 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.1C6.6 42.6 14.6 48 24 48z"/></svg>Continuar com Google</button>
     <p class="muted small center" style="margin:0">Ao continuar, você concorda em usar o app para planejar suas viagens. Seus dados ficam visíveis só para quem viaja com você.</p>
     <p class="center" style="margin:0">${qyuMark()}</p>
-  </div>`;
+  </div></div>`;
 }
 function bindLogin() {
   const f = $("#fLogin"); if (!f) return;
@@ -155,7 +156,7 @@ function viewNova(edit) {
   const p = S().profile || {}, t = edit || {};
   const mine = edit ? (t.members || {})[me()] || {} : { moto: p.moto, consumo: p.consumo, tanque: p.tanque };
   const tipo = t.tipo || "amigos";
-  return `<div class="view">
+  return `<div class="view narrow">
     <a href="${edit ? `#viagem/${t.id}` : "#viagens"}" class="small" style="text-decoration:none">← ${edit ? "Voltar à viagem" : "Minhas viagens"}</a>
     <h2>${edit ? "Editar viagem" : "Nova viagem"}</h2>
     <form id="fTrip" class="card">
@@ -221,6 +222,7 @@ function viewViagem(t) {
       <div class="srow"><span><span class="arr">↑</span>${esc(t.destino)}</span><span class="km">${fmtD(t.inicio)}</span></div>
       <div class="srow"><span><span class="arr">↓</span>${esc(t.origem)}</span><span class="km">${fmtD(t.fim)}</span></div>
     </div>
+    <div class="cols"><div class="col">
     <div class="card">
       <div class="between"><h3>${esc(t.name)}</h3>${dono ? `<a class="btn sm" href="#editar/${t.id}">Editar</a>` : ""}</div>
       <dl class="kv"><dt>Saída</dt><dd>${esc(t.origem)}${t.inicio ? ` · ${fmtDW(t.inicio)}` : ""}</dd><dt>Destino</dt><dd>${esc(t.destino)}</dd><dt>Volta</dt><dd>${t.fim ? fmtDW(t.fim) : "—"}</dd></dl>
@@ -230,11 +232,13 @@ function viewViagem(t) {
       ${members.map(([uid, m]) => `<div class="between" style="border-top:1px solid var(--line);padding-top:8px"><div><b>${esc(m.nome || "Piloto")}</b>${uid === me() ? ` <span class="muted small">(você)</span>` : ""}<div class="muted small">${esc(m.moto || "moto não informada")}${m.consumo ? ` · ${num(m.consumo, 1)} km/L` : ""}${m.tanque ? ` · ${num(m.tanque, 1)} L` : ""}${m.consumo && m.tanque ? ` · ~${num(m.consumo * m.tanque)} km por tanque` : ""}</div></div>${m.papel === "dono" ? `<span class="shield">DONO</span>` : ""}</div>`).join("")}
       <p class="note">Em breve: convite por link para quem vai junto entrar na viagem.</p>
     </div>
+    </div><div class="col">
     <div class="card">
       <h3>Em breve nesta viagem</h3>
       <p class="muted" style="margin:0">Roteiro por dias, mapa, tempo no caminho, abastecimento pela autonomia de cada moto, gastos divididos, checklist, diário de bordo, segurança e roadbook para imprimir.</p>
     </div>
     ${dono ? `<button class="btn danger" data-act="delTrip" data-id="${t.id}">Apagar viagem</button>` : ""}
+    </div></div>
   </div>`;
 }
 
@@ -243,6 +247,7 @@ function viewPerfil() {
   const u = S().user, p = S().profile || {};
   return `<div class="view">
     <h2>Perfil</h2>
+    <div class="cols">
     <form id="fPerf" class="card">
       <label class="field"><span>Nome</span><input id="pNome" value="${esc(p.nome || u.displayName || "")}" required></label>
       <div class="label" style="margin-top:4px">Sua moto</div>
@@ -258,6 +263,7 @@ function viewPerfil() {
       <h3>Conta</h3>
       <dl class="kv"><dt>E-mail</dt><dd>${esc(u.email || "—")}</dd><dt>Entrada</dt><dd>${u.provider === "google.com" ? "Google" : "E-mail e senha"}</dd></dl>
       <div class="row"><button class="btn" data-act="logout">Sair</button><button class="btn danger" data-act="delAccount">Excluir conta</button></div>
+    </div>
     </div>
   </div>`;
 }
@@ -284,6 +290,7 @@ function viewAjustes() {
   const e = getEstilo();
   return `<div class="view">
     <h2>Ajustes</h2>
+    <div class="cols"><div class="col">
     <div class="card">
       <h3>Estilo do app</h3>
       <div class="styles">${ESTILOS.map(([k, l, s]) => `<button type="button" data-act="estilo" data-v="${k}" aria-pressed="${e === k}"><div class="sw ${k}">${s}</div><div class="nm">${l}</div></button>`).join("")}</div>
@@ -295,11 +302,13 @@ function viewAjustes() {
       <p class="muted small" style="margin:0">Versão ${esc(self.APP_VERSION || "")}${store.mode === "local" ? " · modo de teste neste aparelho" : ""}</p>
       <p style="margin:0">${qyuMark()}</p>
     </div>
+    </div><div class="col">
     <div class="card">
       <h3>Créditos</h3>
       <ul class="credits">${CREDITS.map(([n, url, what, lic]) => `<li><a href="${url}" target="_blank" rel="noopener">${n}</a><span>${what}${lic ? ` · ${lic}` : ""}</span></li>`).join("")}</ul>
       <p class="muted small" style="margin:0">Google é marca do Google LLC. Ícones desenhados para o app.</p>
     </div>
+    </div></div>
   </div>`;
 }
 

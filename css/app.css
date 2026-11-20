@@ -33,7 +33,7 @@
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--fg); font: 16px/1.5 var(--f-body); -webkit-text-size-adjust: 100%; min-height: 100vh; }
 a { color: var(--brand); }
-:root[data-estilo="asfalto"] a { color: #7cc4ff; }
+:root[data-estilo="asfalto"] main a:not([class]), :root[data-estilo="asfalto"] .credits a, :root[data-estilo="asfalto"] .sheet a:not([class]) { color: #7cc4ff; }
 button, input, select, textarea { font: inherit; color: inherit; }
 .wrap { max-width: 720px; margin: 0 auto; padding: 0 16px; }
 .muted { color: var(--muted); }
@@ -170,3 +170,49 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); out
 .credits span { color: var(--muted); font-size: .8rem; }
 .qyu { display: inline-flex; align-items: baseline; gap: 6px; text-decoration: none; color: var(--fg); font-size: .9rem; }
 .qyu b { font: 900 1.05rem var(--f-display); letter-spacing: .08em; color: #06b6d4; }
+
+/* =========================================================
+   Tela larga (computador e tablet deitado): menu na lateral
+   e conteúdo em colunas. No celular nada muda.
+   ========================================================= */
+.lhero, .lform, .cols, .col { display: contents; }
+.nav .nbrand, .nav .nfoot { display: none; }
+
+@media (min-width: 960px) {
+  :root { --side: 232px; }
+  body { padding-left: var(--side); }
+
+  /* menu lateral */
+  .nav { top: 0; bottom: 0; right: auto; width: var(--side); padding: env(safe-area-inset-top) 0 0; display: flex; }
+  :root:not([data-estilo]) .nav, :root[data-estilo="placa"] .nav { border-right: 3px solid #fff; box-shadow: 3px 0 0 var(--brand); }
+  :root[data-estilo="asfalto"] .nav { border-right: 4px dashed #f0b627; }
+  .nav .in { flex: 1; flex-direction: column; max-width: none; margin: 0; padding: 0 12px 16px; gap: 4px; }
+  .nav .nbrand { display: block; flex: none; padding: 18px 10px 20px; color: var(--top-fg); text-decoration: none; font: 900 1.35rem var(--f-display); text-transform: var(--title-case); letter-spacing: .02em; }
+  .nav a[data-r] { flex: none; display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 10px; font-size: .95rem; }
+  .nav a[data-r]:hover { background: rgba(255,255,255,.08); }
+  .nav a[data-r].on { background: rgba(255,255,255,.14); }
+  .nav .nfoot { display: block; margin-top: auto; padding: 14px 10px 0; border-top: 1px solid rgba(255,255,255,.18); font-size: .85rem; color: var(--nav-fg); }
+  .nav .nfoot .qyu { display: inline-flex; white-space: nowrap; padding: 0; color: inherit; font-size: .85rem; }
+
+  /* topo: só o nome da viagem e a sincronização */
+  .top .brand .b1 { display: none; }
+  .top .brand .b2 { font-size: 1.15rem; }
+  :root:not([data-estilo]) .top .brand .b2, :root[data-estilo="placa"] .top .brand .b2 { opacity: 1; }
+
+  /* conteúdo */
+  .wrap { max-width: 1120px; padding: 0 32px; }
+  main { padding: 28px 0 48px; }
+  .view { gap: 20px; }
+  .view.narrow { max-width: 640px; }
+  .trips { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+  .col { display: grid; gap: 20px; align-content: start; }
+  .view > .sign .big { font-size: 2.6rem; }
+
+  /* entrada: apresentação à esquerda, formulário à direita */
+  .login { max-width: 980px; grid-template-columns: 1.1fr 1fr; column-gap: 64px; align-items: center; padding: 48px 32px; }
+  .lhero { display: grid; gap: 22px; }
+  .lhero .sign .srow { font-size: 1.6rem; padding: 10px 0; }
+  .lhero h2 { font-size: 2.4rem; }
+  .lform { display: grid; gap: 18px; background: var(--surface); border: var(--card-border); border-radius: var(--radius); padding: 28px; }
+}
