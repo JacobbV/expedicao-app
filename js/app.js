@@ -1,39 +1,14 @@
 // Expedição · telas: entrada, Minhas viagens, viagem, perfil, ajustes, sobre e a navegação (menu lateral, abas e menu da conta)
 import { store, onChange, getState, newId, newCode, authMessage } from "./store.js";
+import { renderTrip, afterRender, keepMap, refreshMap, setRedraw, SECTIONS, stopRide, tripDaysList } from "./trip.js";
+import { $, esc, pad, todayISO, parseISO, diffDays, WD, fmtD, fmtDW, num, parseNum, toast, openSheet, closeSheet, ls, IC, ico } from "./util.js";
 
-const $ = s => document.querySelector(s);
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const pad = n => String(n).padStart(2, "0");
-const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-const parseISO = s => { const [y, m, d] = (s || "").split("-").map(Number); return new Date(y, (m || 1) - 1, d || 1); };
-const diffDays = (a, b) => Math.round((parseISO(b) - parseISO(a)) / 864e5);
-const WD = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
-const fmtD = s => s ? `${pad(parseISO(s).getDate())}/${pad(parseISO(s).getMonth() + 1)}` : "—";
-const fmtDW = s => s ? `${WD[parseISO(s).getDay()]} ${fmtD(s)}` : "—";
-const num = (v, d = 0) => v == null || v === "" || isNaN(v) ? "—" : Number(v).toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
-const parseNum = v => { if (v == null || String(v).trim() === "") return null; const n = Number(String(v).replace(/\./g, "").replace(",", ".")); return isNaN(n) ? null : n; };
 const TRIP_COLORS = ["#c8102e", "#0b6b3a", "#1d4ed8", "#e8590c", "#7c3aed", "#e85b9c"];
 const TIPOS = [["solo", "Solo"], ["casal", "Casal"], ["amigos", "Amigos"], ["grupo", "Grupo"]];
 const tipoLabel = k => (TIPOS.find(t => t[0] === k) || [, ""])[1];
 const ESTILOS = [["placa", "Placa", "BR 116"], ["asfalto", "Asfalto", "— — —"], ["trilha", "Trilha", "Trilha"]];
 
-function toast(msg) {
-  document.querySelectorAll(".toast").forEach(t => t.remove());
-  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
-  setTimeout(() => t.remove(), Math.max(2400, msg.length * 60));
-}
-function openSheet(html, init) {
-  const L = $("#layer");
-  L.innerHTML = `<div class="backdrop" data-close="1"></div><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
-  const sh = L.querySelector(".sheet");
-  L.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", closeSheet));
-  init?.(sh);
-  sh.querySelector("input, select, textarea")?.focus({ preventScroll: true });
-}
-const closeSheet = () => { $("#layer").innerHTML = ""; };
-
 /* ---------- aparência: estilo, tema claro/escuro e menu recolhido ---------- */
-const ls = { get: (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} } };
 const getEstilo = () => ls.get("estilo", "placa");
 const getTema = () => ls.get("tema", "auto");
 const darkMQ = matchMedia("(prefers-color-scheme: dark)");
@@ -49,29 +24,12 @@ function setTema(t) { ls.set("tema", t); applyLook(); }
 darkMQ.addEventListener?.("change", () => { if (getTema() === "auto") applyLook(); });
 function toggleMenu() { const mini = document.documentElement.dataset.menu !== "mini"; if (mini) document.documentElement.dataset.menu = "mini"; else delete document.documentElement.dataset.menu; ls.set("menu", mini ? "mini" : "aberto"); renderSide(); }
 
-/* ---------- ícones (desenhados para o app) ---------- */
-const IC = {
-  viagens: '<path d="M9 4l-5 2v14l5-2 6 2 5-2V4l-5 2z"/><path d="M9 4v14M15 6v14"/>',
-  inicio: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
-  mais: '<path d="M12 5v14M5 12h14"/>',
-  perfil: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
-  ajustes: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
-  lua: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
-  pincel: '<path d="M4 20c3 0 5-2 5-4.5S7.5 12 6 13.5 4 17 4 20z"/><path d="M9 14l11-11"/>',
-  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.5l6.8-4M8.6 13.5l6.8 4"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
-  sair: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4M6 12h11"/>',
-  recolher: '<path d="M15 6l-6 6 6 6"/>',
-  expandir: '<path d="M9 6l6 6-6 6"/>',
-  pilotos: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.6.9 2.6 2.6 3 5.2"/>',
-};
-const ico = k => `<svg viewBox="0 0 24 24" aria-hidden="true">${IC[k] || ""}</svg>`;
 const MARK = '<svg viewBox="0 0 32 32" aria-hidden="true"><rect x="1.5" y="1.5" width="29" height="29" rx="7" style="fill:var(--logo-bg);stroke:var(--logo-fg)" stroke-width="2.4"/><path d="M16 25V9M9.5 15.5L16 9l6.5 6.5" style="stroke:var(--logo-fg)" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ESTILO_NOME = { placa: "Placa", asfalto: "Asfalto", trilha: "Trilha" };
 
 /* ---------- rotas ---------- */
-let route = "viagens", param = "", sub = "";
-function parseHash() { const h = location.hash.slice(1) || "viagens"; [route, param = "", sub = ""] = h.split("/"); }
+let route = "viagens", param = "", sub = "", extra = "", lastKey = "";
+function parseHash() { const h = decodeURIComponent(location.hash.slice(1) || "viagens"); [route, param = "", sub = "", extra = ""] = h.split("/"); }
 addEventListener("hashchange", () => { parseHash(); closeSheet(); render(); scrollTo(0, 0); });
 
 /* ---------- utilidades de viagem ---------- */
@@ -99,12 +57,13 @@ let loginTab = "entrar";
 function viewLogin() {
   const st = S();
   return `<div class="login"><div class="lhero">
+    <img class="logo-hero" src="icons/logo-placa.svg" alt="Expedição · viagens de moto" width="760" height="230">
+    <p class="lead muted" style="margin:0">O companheiro de viagem para expedições de moto: planeje por dias, saiba onde abastecer e leve o roadbook na palma da mão.</p>
     <div class="sign">
       <div class="srow"><span><span class="arr">↑</span>Roteiro por dias</span></div>
       <div class="srow"><span><span class="arr">↗</span>Abastecimento</span></div>
       <div class="srow"><span><span class="arr">↑</span>Tempo no caminho</span></div>
     </div>
-    <div><h2>Expedição</h2><p class="lead muted" style="margin:6px 0 0">O companheiro de viagem para expedições de moto: planeje por dias, saiba onde abastecer e leve o roadbook na palma da mão.</p></div>
     ${route === "convite" || ls.get("convitePendente", "") ? `<p class="note" style="margin:0"><b>Você recebeu um convite para uma viagem.</b> Entre ou crie sua conta e ele abre em seguida.</p>` : ""}
     </div><div class="lform">
     <div class="seg" role="tablist">${[["entrar", "Entrar"], ["criar", "Criar conta"]].map(([k, l]) => `<button type="button" data-act="ltab" data-v="${k}" aria-pressed="${loginTab === k}">${l}</button>`).join("")}</div>
@@ -186,7 +145,7 @@ function viewNova(edit) {
   const mine = edit ? (t.members || {})[me()] || {} : { moto: p.moto, consumo: p.consumo, tanque: p.tanque };
   const tipo = t.tipo || "amigos";
   return `<div class="view narrow">
-    <a href="${edit ? `#viagem/${t.id}` : "#viagens"}" class="small" style="text-decoration:none">← ${edit ? "Voltar à viagem" : "Minhas viagens"}</a>
+    <a href="${edit ? `#pilotos/${t.id}` : "#viagens"}" class="small" style="text-decoration:none">← ${edit ? "Voltar" : "Minhas viagens"}</a>
     <h2>${edit ? "Editar viagem" : "Nova viagem"}</h2>
     <form id="fTrip" class="card">
       <label class="field"><span>Nome da expedição</span><input id="tNome" required maxlength="40" value="${esc(t.name || "")}" placeholder="Ex.: Atacama pelos Andes"><small>Aparece no topo do app enquanto você estiver nessa viagem.</small></label>
@@ -226,7 +185,7 @@ function bindNova(edit) {
       if (edit) {
         const patch = { name, tipo, origem, destino, inicio, fim };
         if (edit.owner === me()) patch.members = { ...edit.members, [me()]: { ...(edit.members || {})[me()], ...moto } };
-        await store.updateTrip(edit.id, patch); toast("Viagem salva"); location.hash = `#viagem/${edit.id}`;
+        await store.updateTrip(edit.id, patch); toast("Viagem salva"); location.hash = `#pilotos/${edit.id}`;
       } else {
         const id = newId();
         const trip = { id, name, tipo, origem, destino, inicio, fim, owner: me(), memberIds: [me()],
@@ -244,13 +203,14 @@ function motoLine(m) {
   return [m.moto || "moto não informada", m.consumo ? `${num(m.consumo, 1)} km/L` : "", m.tanque ? `${num(m.tanque, 1)} L` : "", m.consumo && m.tanque ? `~${num(m.consumo * m.tanque)} km por tanque` : ""].filter(Boolean).join(" · ");
 }
 const faceOf = (m, name) => m?.foto ? `<img src="${esc(m.foto)}" alt="">` : esc(initials(name));
-function viewViagem(t) {
+function viewPilotos(t) {
   if (!t) return `<div class="view"><div class="card empty"><h3>Viagem não encontrada</h3><p class="muted" style="margin:0">Ela pode ter sido apagada, você saiu dela, ou ainda não participa. Se recebeu um convite, abra o link de novo.</p><a class="btn" href="#viagens">Minhas viagens</a></div></div>`;
   const ph = tripPhase(t), d = tripDays(t), dono = t.owner === me();
   const members = Object.entries(t.members || {}).filter(([uid]) => (t.memberIds || []).includes(uid))
     .sort((a, b) => (a[1].papel === "dono" ? -1 : b[1].papel === "dono" ? 1 : (a[1].nome || "").localeCompare(b[1].nome || "")));
   return `<div class="view">
-    <a href="#viagens" class="small" style="text-decoration:none">← Minhas viagens</a>
+    <a href="#viagem/${t.id}" class="small" style="text-decoration:none">← Início da viagem</a>
+    <h2>Pilotos e viagem</h2>
     <div class="sign">
       <div class="label" style="color:inherit;opacity:.8">${esc(tipoLabel(t.tipo))}${d ? ` · ${d} ${d === 1 ? "dia" : "dias"}` : ""}</div>
       <div class="big">${ph.k === "antes" ? `Faltam <b>${num(ph.n)}</b> ${ph.n === 1 ? "dia" : "dias"}` : esc(ph.txt)}</div>
@@ -275,8 +235,8 @@ function viewViagem(t) {
     </div>
     </div><div class="col">
     <div class="card">
-      <h3>Em breve nesta viagem</h3>
-      <p class="muted" style="margin:0">Roteiro por dias, mapa, tempo no caminho, abastecimento pela autonomia de cada moto, gastos divididos, checklist, diário de bordo, segurança e roadbook para imprimir.</p>
+      <h3>Convite</h3>
+      <p class="muted" style="margin:0">Quem entra pelo link vê o roteiro, o mapa e o tempo, marca o próprio checklist, lança gastos, manda fotos e aparece na divisão das contas.</p>
     </div>
     ${dono ? `<button class="btn danger" data-act="delTrip" data-id="${t.id}">Apagar viagem</button>` : `<button class="btn danger" data-act="leave" data-id="${t.id}">Sair desta viagem</button>`}
     </div></div>
@@ -454,11 +414,19 @@ function bindPerfil() {
 const CREDITS = [
   ["Firebase", "https://firebase.google.com", "login e sincronização (Google)", ""],
   ["GitHub Pages", "https://pages.github.com", "hospedagem do app", ""],
-  ["Overpass", "https://fonts.google.com/specimen/Overpass", "fonte principal, inspirada nas placas de rodovia (Delve Withrington)", "SIL OFL 1.1"],
+  ["Overpass", "https://fonts.google.com/specimen/Overpass", "fonte principal e da logo, inspirada nas placas de rodovia (Delve Withrington)", "SIL OFL 1.1"],
   ["Overpass Mono", "https://fonts.google.com/specimen/Overpass+Mono", "números", "SIL OFL 1.1"],
   ["Fraunces", "https://fonts.google.com/specimen/Fraunces", "títulos do estilo Trilha (Undercase Type)", "SIL OFL 1.1"],
   ["Google Fonts", "https://fonts.google.com", "entrega das fontes", ""],
-  ["DejaVu Sans", "https://dejavu-fonts.github.io", "texto da imagem de pré-visualização do link", "licença livre DejaVu (Bitstream Vera)"],
+  ["OpenStreetMap", "https://www.openstreetmap.org/copyright", "mapa, postos e nomes de lugares · © colaboradores do OpenStreetMap", "ODbL 1.0"],
+  ["OpenTopoMap", "https://opentopomap.org", "estilo Relevo do mapa", "CC BY-SA 3.0"],
+  ["Leaflet", "https://leafletjs.com", "mapa interativo", "BSD-2-Clause"],
+  ["OSRM", "https://project-osrm.org", "rota pela estrada e km de cada dia (servidor público de demonstração)", "BSD-2-Clause · dados ODbL"],
+  ["Overpass API", "https://overpass-api.de", "postos de combustível perto da estrada", "dados ODbL"],
+  ["Nominatim", "https://nominatim.org", "nome da cidade pela sua posição", "dados ODbL"],
+  ["Open-Meteo", "https://open-meteo.com", "previsão do tempo, clima típico e busca de cidades", "CC BY 4.0"],
+  ["GeoNames", "https://www.geonames.org", "base das cidades usada pelo Open-Meteo", "CC BY 4.0"],
+  ["unpkg", "https://unpkg.com", "entrega do Leaflet", ""],
 ];
 const qyuMark = () => `<a class="qyu" href="https://jacobbv.github.io/" target="_blank" rel="noopener">Desenvolvido por <b>QYUDEV.</b></a>`;
 const TEMAS = [["claro", "Claro"], ["escuro", "Escuro"], ["auto", "Do aparelho"]];
@@ -490,7 +458,7 @@ function viewSobre() {
     <h2>Sobre e créditos</h2>
     <div class="cols"><div class="col">
     <div class="card">
-      <div class="between" style="justify-content:flex-start"><span class="mark" style="width:44px;height:44px">${MARK}</span><h3>Expedição</h3></div>
+      <img class="logo-hero" src="icons/logo-placa.svg" alt="Expedição · viagens de moto" width="760" height="230">
       <p style="margin:0">Companheiro de viagem para expedições de moto: planeja a viagem por dias, avisa o que vem pela frente e guarda o que aconteceu. A navegação curva a curva fica com o Google Maps ou o Waze.</p>
       <p class="muted small" style="margin:0">Versão ${esc(self.APP_VERSION || "")}${store.mode === "local" ? " · modo de teste neste aparelho" : ""}</p>
       <p style="margin:0">${qyuMark()}</p>
@@ -507,8 +475,10 @@ function viewSobre() {
 
 /* =========================== NAVEGAÇÃO =========================== */
 // Seções da viagem. Cada uma aparece no menu quando estiver pronta (roteiro, mapa, checklist e gastos chegam na 2.0-c).
-const TRIP_TABS = [["inicio", "Início", "inicio"]];
-const curTrip = () => ["viagem", "editar"].includes(route) ? tripById(param) : null;
+// Seções da viagem: as principais vão no menu lateral e nas abas do celular; o resto fica em "Mais"
+const MAIN = SECTIONS.filter(x => x[3]), MORE = SECTIONS.filter(x => !x[3]);
+const tripHref = (t, k) => `#viagem/${t.id}${k === "inicio" ? "" : "/" + k}`;
+const curTrip = () => ["viagem", "editar", "pilotos"].includes(route) ? tripById(param) : null;
 const initials = n => (n || "?").trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
 function avatarInner() {
   const u = S().user || {}, foto = S().profile?.foto || u.photoURL;
@@ -524,17 +494,20 @@ function renderSide() {
     <a class="si${route === "viagens" ? " on" : ""}" href="#viagens" title="Minhas viagens">${ico("viagens")}<span class="lbl">Minhas viagens</span></a>
     ${list.map(x => `<a class="si sub${t && t.id === x.id ? " on" : ""}" href="#viagem/${x.id}" title="${esc(x.name)}"><span class="dotc" style="--c:${tripColor(x)}">${esc(initials(x.name.replace(/^expedi[cç][aã]o\s+/i, "")).slice(0, 1))}</span><span class="lbl">${esc(x.name)}</span></a>`).join("")}
     <a class="si sub${on("nova")}" href="#nova" title="Nova viagem">${ico("mais")}<span class="lbl">Nova viagem</span></a>
-    ${t ? `<div class="sgrp">${esc(t.name)}</div>${TRIP_TABS.map(([k, l, i]) => `<a class="si${(sub || "inicio") === k && route === "viagem" ? " on" : ""}" href="#viagem/${t.id}${k === "inicio" ? "" : "/" + k}" title="${l}">${ico(i)}<span class="lbl">${l}</span></a>`).join("")}` : ""}
+    ${t ? `<div class="sgrp">${esc(t.name)}</div>${MAIN.map(([k, l, i]) => `<a class="si${(sub || "inicio") === k && route === "viagem" ? " on" : ""}" href="${tripHref(t, k)}" title="${l}">${ico(i)}<span class="lbl">${l}</span></a>`).join("")}
+      <div class="sgrp">Mais</div>${MORE.map(([k, l, i]) => `<a class="si${sub === k && route === "viagem" ? " on" : ""}" href="${tripHref(t, k)}" title="${l}">${ico(i)}<span class="lbl">${l}</span></a>`).join("")}
+      <a class="si${route === "pilotos" ? " on" : ""}" href="#pilotos/${t.id}" title="Pilotos e convite">${ico("pilotos")}<span class="lbl">Pilotos e convite</span></a>` : ""}
     <div class="sfoot">
       <button class="si" data-act="menuMini" title="${document.documentElement.dataset.menu === "mini" ? "Mostrar menu" : "Recolher menu"}">${ico(document.documentElement.dataset.menu === "mini" ? "expandir" : "recolher")}<span class="lbl">Recolher menu</span></button>
       ${qyuMark()}
     </div>`;
 }
 function renderBottomNav() {
-  const nav = $("#nav"), t = curTrip(), tabs = t ? TRIP_TABS : [];
+  const nav = $("#nav"), t = route === "viagem" || route === "pilotos" ? curTrip() : null;
+  const tabs = t ? [...MAIN, ["mais", "Mais", "grade"]] : [], cur = route === "pilotos" ? "mais" : MAIN.some(m => m[0] === (sub || "inicio")) ? (sub || "inicio") : "mais";
   const show = tabs.length >= 2;
   nav.hidden = !show; document.body.classList.toggle("has-nav", show);
-  nav.innerHTML = show ? `<div class="in">${tabs.map(([k, l, i]) => `<a class="${(sub || "inicio") === k ? "on" : ""}" href="#viagem/${t.id}${k === "inicio" ? "" : "/" + k}">${ico(i)}${l}</a>`).join("")}</div>` : "";
+  nav.innerHTML = show ? `<div class="in">${tabs.map(([k, l, i]) => `<a class="${cur === k ? "on" : ""}" href="${tripHref(t, k)}">${ico(i)}${l}</a>`).join("")}</div>` : "";
 }
 function openUserMenu() {
   const st = S(), u = st.user, t = curTrip();
@@ -559,6 +532,19 @@ function openUserMenu() {
   L.querySelectorAll("a.uitem").forEach(a => a.addEventListener("click", closeSheet));
 }
 $("#avatarBtn").addEventListener("click", openUserMenu);
+/* ---------- novidades (sino) ---------- */
+const NEWS = [
+  ["3.0.0", "20/11/2026", ["Roteiro por dias com km e horas calculados pela estrada, aviso de dia longo e de chegada depois do pôr do sol", "Mapa da viagem com a rota em vermelho, 3 estilos e pontos marcados por vocês", "Tempo de cada dia, hora a hora e no caminho; clima típico quando ainda falta muito", "Abastecimento pela autonomia de cada moto, com os postos do caminho", "Checklist com lista pronta, gastos divididos com acerto de contas e planilha", "Diário de bordo com consumo real, segurança (ficha, cheguei bem, localização) e modo pilotando", "Hospedagem, pendências, revisão das motos, fotos por dia, roadbook para imprimir e resumo", "Logo nova"]],
+  ["2.0.5", "20/11/2026", ["Ícone novo e prévia do link no WhatsApp", "Compartilhar o app pelo WhatsApp"]],
+  ["2.0.4", "20/11/2026", ["Convite por link, pilotos e foto do perfil"]],
+  ["2.0.3", "20/11/2026", ["Menu lateral no computador, menu da conta e tema escuro"]],
+];
+const newsUnseen = () => ls.get("novidadesVistas", "") !== NEWS[0][0];
+function viewNovidades() {
+  ls.set("novidadesVistas", NEWS[0][0]);
+  return `<div class="view narrow"><h2>Novidades</h2>${NEWS.map(([v, d, l]) => `<div class="card"><div class="between"><h3>Versão ${v}</h3><span class="muted small">${d}</span></div><ul class="news">${l.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}</div>`;
+}
+$("#bellBtn")?.addEventListener("click", () => { location.hash = "#novidades"; });
 function shareApp() {
   const link = "https://jacobbv.github.io/expedicao-app/";
   linkSheet({
@@ -632,7 +618,7 @@ function render() {
   document.body.classList.toggle("has-side", logged);
   if (!logged) {
     if (route === "convite" && param) ls.set("convitePendente", param);
-    $("#nav").hidden = true; document.body.classList.remove("has-nav"); view.innerHTML = viewLogin(); bindLogin(); return;
+    $("#nav").hidden = true; $("#bellBtn").hidden = true; document.body.classList.remove("has-nav"); view.innerHTML = viewLogin(); bindLogin(); return;
   }
   const pend = ls.get("convitePendente", ""); if (pend) { ls.set("convitePendente", ""); try { localStorage.removeItem("convitePendente"); } catch (e) {} if (route !== "convite") { location.hash = `#convite/${pend}`; return; } }
   const t = curTrip();
@@ -641,9 +627,18 @@ function render() {
   $(".top .brand").classList.toggle("intrip", !!t);
   $("#avatarBtn").innerHTML = avatarInner();
   syncTop(); renderSide(); renderBottomNav();
+  $("#bellBtn").hidden = false; $("#bellBtn").classList.toggle("dot", newsUnseen());
+  const inTrip = route === "viagem" && t;
+  document.body.classList.toggle("riding", !!inTrip && sub === "pilotando");
+  if (!inTrip && !["pilotos", "editar"].includes(route)) { stopRide(); store.closeTrip?.(); }
+  const key = location.hash;
+  if (inTrip && keepMap(sub) && key === lastKey) { refreshMap(); return; }
+  lastKey = key;
   if (route === "nova") { view.innerHTML = viewNova(); bindNova(); }
-  else if (route === "editar") { view.innerHTML = t ? viewNova(t) : viewViagem(null); if (t) bindNova(t); }
-  else if (route === "viagem") view.innerHTML = viewViagem(t);
+  else if (route === "editar") { view.innerHTML = t ? viewNova(t) : viewPilotos(null); if (t) bindNova(t); }
+  else if (route === "viagem") { if (!t) view.innerHTML = viewPilotos(null); else { view.innerHTML = renderTrip(t, sub || "inicio", extra); afterRender(sub || "inicio"); } }
+  else if (route === "pilotos") view.innerHTML = viewPilotos(t);
+  else if (route === "novidades") view.innerHTML = viewNovidades();
   else if (route === "perfil") { view.innerHTML = viewPerfil(); bindPerfil(); }
   else if (route === "ajustes") view.innerHTML = viewAjustes();
   else if (route === "sobre") view.innerHTML = viewSobre();
@@ -654,3 +649,4 @@ function render() {
 onChange(() => { const a = document.activeElement; if (a && a.closest("form") && ["INPUT", "TEXTAREA", "SELECT"].includes(a.tagName) && S().user) { syncTop(); return; } render(); });
 applyLook();
 parseHash();
+setRedraw(() => { lastKey = ""; render(); });

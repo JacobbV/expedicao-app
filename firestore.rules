@@ -93,6 +93,13 @@ service cloud.firestore {
         allow create: if member(t) && request.resource.data.rider == me();
         allow update, delete: if member(t) && resource.data.rider == me();
       }
+      // Diário de bordo: todos leem, cada um escreve o seu
+      match /log/{id} {
+        allow read: if member(t);
+        allow create: if member(t) && request.resource.data.rider == me();
+        allow update: if member(t) && resource.data.rider == me() && request.resource.data.rider == me();
+        allow delete: if member(t) && resource.data.rider == me();
+      }
       // Meus gastos: só a própria conta
       match /private/{u}/{document=**} {
         allow read, write: if member(t) && me() == u;

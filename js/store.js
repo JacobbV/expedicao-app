@@ -7,7 +7,10 @@ const SDK = "https://www.gstatic.com/firebasejs/10.12.2/";
 const LOCAL = !firebaseConfig || new URLSearchParams(location.search).has("local");
 
 const listeners = new Set();
-const state = { ready: false, user: null, profile: null, trips: [], online: navigator.onLine, pending: false, error: "" };
+const state = { ready: false, user: null, profile: null, trips: [], online: navigator.onLine, pending: false, error: "", td: null };
+// Coleções de cada viagem carregadas quando ela está aberta (state.td)
+export const SUBS = ["checklist", "expenses", "lodging", "meta", "photos", "riders", "log", "points"];
+const emptyTd = id => Object.fromEntries([["id", id], ["ready", false], ...SUBS.map(c => [c, {}])]);
 const emit = () => listeners.forEach(fn => { try { fn(state); } catch (e) { console.error(e); } });
 export const onChange = fn => { listeners.add(fn); fn(state); return () => listeners.delete(fn); };
 export const getState = () => state;
@@ -42,7 +45,7 @@ export const authMessage = e => AUTH_MSG[e?.code] || "Não deu certo agora. Tent
 function localStore() {
   const K = "expedicao-local";
   let db = {}; try { db = JSON.parse(localStorage.getItem(K) || "{}"); } catch (e) {}
-  db.users ||= {}; db.trips ||= {}; db.invites ||= {}; db.session ||= null;
+  db.users ||= {}; db.trips ||= {}; db.invites ||= {}; db.sub ||= {}; db.session ||= null;
   const save = () => { try { localStorage.setItem(K, JSON.stringify(db)); } catch (e) {} };
   const refresh = () => {
     const u = db.session && db.users[db.session];
@@ -70,7 +73,7 @@ function localStore() {
     async saveProfile(p) { const u = db.users[db.session]; u.profile = { ...u.profile, ...p }; if (p.nome) u.name = p.nome; save(); refresh(); },
     async createTrip(t) { db.trips[t.id] = t; db.invites[t.invite] = inviteData(t); save(); refresh(); return t.id; },
     async updateTrip(id, patch) { Object.assign(db.trips[id], patch); save(); refresh(); },
-    async deleteTrip(id) { const t = db.trips[id]; if (t) delete db.invites[t.invite]; delete db.trips[id]; save(); refresh(); },
+    async deleteTrip(id) { const t = db.trips[id]; if (t) delete db.invites[t.invite]; delete db.trips[id]; delete db.sub[id]; save(); refresh(); },
     async ensureInvite(t) { db.invites[t.invite] = inviteData(t); save(); },
     async rotateInvite(t) { const code = newCode(); delete db.invites[t.invite]; db.trips[t.id].invite = code; db.invites[code] = inviteData({ ...t, invite: code }); save(); refresh(); return code; },
     async getInvite(code) { return db.invites[code] || null; },
@@ -79,6 +82,20 @@ function localStore() {
       if (!t.memberIds.includes(uid)) t.memberIds.push(uid);
       t.members[uid] = { ...mine, papel: "piloto" }; t.joinCode = code; save(); refresh();
     },
+    openTrip(id) {
+      if (state.td?.id === id) return;
+      const sub = db.sub[id] || {}; state.td = emptyTd(id);
+      SUBS.forEach(c => { state.td[c] = JSON.parse(JSON.stringify(sub[c] || {})); }); state.td.ready = true; setTimeout(emit, 0);
+    },
+    closeTrip() { state.td = null; },
+    async put(coll, id, data, merge = true) {
+      const t = state.td?.id; if (!t) return; db.sub[t] ||= {}; db.sub[t][coll] ||= {};
+      db.sub[t][coll][id] = merge ? { ...(db.sub[t][coll][id] || {}), ...data } : data; save();
+      if (state.td[coll]) state.td[coll][id] = JSON.parse(JSON.stringify(db.sub[t][coll][id])); emit();
+    },
+    async add(coll, data) { const id = newId(); await this.put(coll, id, data, false); return id; },
+    async del(coll, id) { const t = state.td?.id; if (!t) return; delete db.sub[t]?.[coll]?.[id]; if (state.td[coll]) delete state.td[coll][id]; save(); emit(); },
+    async getOne(coll, id) { const t = state.td?.id; return db.sub[t]?.[coll]?.[id] || null; },
     async updateMyMember(id, patch) { const t = db.trips[id], uid = db.session; t.members[uid] = { ...t.members[uid], ...patch }; save(); refresh(); },
     async removeMember(id, uid) { const t = db.trips[id]; t.memberIds = t.memberIds.filter(x => x !== uid); delete t.members[uid]; save(); refresh(); },
     async leaveTrip(id) { return this.removeMember(id, db.session); },
@@ -92,7 +109,7 @@ function localStore() {
 
 /* =========================== modo nuvem =========================== */
 function cloudStore() {
-  let fb, fs, au, auth, db, unsubTrips = null, unsubProfile = null;
+  let fb, fs, au, auth, db, unsubTrips = null, unsubProfile = null, unsubTd = [];
   const ready = (async () => {
     const [appMod, fsMod, auMod] = await Promise.all([import(SDK + "firebase-app.js"), import(SDK + "firebase-firestore.js"), import(SDK + "firebase-auth.js")]);
     fs = fsMod; au = auMod;
@@ -153,6 +170,24 @@ function cloudStore() {
       return b.commit();
     }),
     ensureInvite: t => w(() => fs.setDoc(fs.doc(db, "invites", t.invite), inviteData(t))),
+    // Abre as coleções da viagem (checklist, gastos, fotos…) e acompanha as mudanças em tempo real
+    openTrip(id) {
+      if (state.td?.id === id) return;
+      this.closeTrip(); state.td = emptyTd(id); let left = SUBS.length;
+      ready.then(() => {
+        if (state.td?.id !== id) return;
+        unsubTd = SUBS.map(c => fs.onSnapshot(fs.collection(db, "trips", id, c), qs => {
+          if (state.td?.id !== id) return;
+          const m = {}; qs.docs.forEach(d => { m[d.id] = d.data(); }); state.td[c] = m;
+          if (!state.td.ready && --left <= 0) state.td.ready = true; emit();
+        }, e => { console.error(c, e); if (state.td?.id === id && !state.td.ready && --left <= 0) { state.td.ready = true; emit(); } }));
+      });
+    },
+    closeTrip() { unsubTd.forEach(u => u()); unsubTd = []; state.td = null; },
+    put: (coll, id, data, merge = true) => w(() => { const t = state.td?.id; if (!t) return; return fs.setDoc(fs.doc(db, "trips", t, coll, id), data, { merge }); }),
+    add: (coll, data) => w(() => { const t = state.td?.id, ref = fs.doc(fs.collection(db, "trips", t, coll)); fs.setDoc(ref, data).catch(e => console.error(e)); return ref.id; }),
+    del: (coll, id) => w(() => { const t = state.td?.id; if (!t) return; return fs.deleteDoc(fs.doc(db, "trips", t, coll, id)); }),
+    getOne: (coll, id) => w(async () => { const t = state.td?.id, s = await fs.getDoc(fs.doc(db, "trips", t, coll, id)); return s.exists() ? s.data() : null; }),
     rotateInvite: t => w(async () => {
       const code = newCode(), b = fs.writeBatch(db);
       b.update(fs.doc(db, "trips", t.id), { invite: code });
