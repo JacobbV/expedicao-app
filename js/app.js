@@ -422,8 +422,8 @@ const CREDITS = [
   ["OpenTopoMap", "https://opentopomap.org", "estilo Relevo do mapa", "CC BY-SA 3.0"],
   ["Leaflet", "https://leafletjs.com", "mapa interativo", "BSD-2-Clause"],
   ["OSRM", "https://project-osrm.org", "rota pela estrada e km de cada dia (servidor público de demonstração)", "BSD-2-Clause · dados ODbL"],
-  ["Overpass API", "https://overpass-api.de", "postos de combustível perto da estrada", "dados ODbL"],
-  ["Nominatim", "https://nominatim.org", "nome da cidade pela sua posição", "dados ODbL"],
+  ["Overpass API", "https://overpass-api.de", "postos de combustível perto da estrada (reserva: overpass.kumi.systems)", "dados ODbL"],
+  ["Nominatim", "https://nominatim.org", "nome da cidade pela sua posição e pontos que não são cidade (cachoeira, mirante)", "dados ODbL"],
   ["Open-Meteo", "https://open-meteo.com", "previsão do tempo, clima típico e busca de cidades", "CC BY 4.0"],
   ["GeoNames", "https://www.geonames.org", "base das cidades usada pelo Open-Meteo", "CC BY 4.0"],
   ["unpkg", "https://unpkg.com", "entrega do Leaflet", ""],
@@ -534,6 +534,7 @@ function openUserMenu() {
 $("#avatarBtn").addEventListener("click", openUserMenu);
 /* ---------- novidades (sino) ---------- */
 const NEWS = [
+  ["3.1.0", "21/11/2026", ["Novo tipo de dia: Estrada + passeio (chega e passeia na mesma tarde)", "Passeio com saída, caminho, km de moto, link do Google Maps, trilha e terra, e cor por circuito", "Caminho aceita “·” como separador e pontos que não são cidade (cachoeira, mirante, povoado)", "Aviso quando um lugar do caminho não é achado no mapa", "Roteiro em lista ou detalhado", "Postos: busca por trechos, servidor reserva e aviso claro quando a busca falha", "🔒 Meus gastos: preparação privada, opção de exibir para o grupo e importação da planilha da Expedição Chapada"]],
   ["3.0.0", "20/11/2026", ["Roteiro por dias com km e horas calculados pela estrada, aviso de dia longo e de chegada depois do pôr do sol", "Mapa da viagem com a rota em vermelho, 3 estilos e pontos marcados por vocês", "Tempo de cada dia, hora a hora e no caminho; clima típico quando ainda falta muito", "Abastecimento pela autonomia de cada moto, com os postos do caminho", "Checklist com lista pronta, gastos divididos com acerto de contas e planilha", "Diário de bordo com consumo real, segurança (ficha, cheguei bem, localização) e modo pilotando", "Hospedagem, pendências, revisão das motos, fotos por dia, roadbook para imprimir e resumo", "Logo nova"]],
   ["2.0.5", "20/11/2026", ["Ícone novo e prévia do link no WhatsApp", "Compartilhar o app pelo WhatsApp"]],
   ["2.0.4", "20/11/2026", ["Convite por link, pilotos e foto do perfil"]],

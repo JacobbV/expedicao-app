@@ -485,3 +485,30 @@ body.riding .wrap { max-width: none; padding: 0; }
 .sheet { overflow-x: hidden; }
 .sheet h3 { overflow-wrap: anywhere; }
 .wxbig > div { min-width: 0; }
+
+/* v3.1 */
+.dcard { border-left-color: var(--dc, var(--brand)) !important; }
+.dcard .dn { background: var(--dc, var(--brand)); color: #fff; }
+.colors { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.colors button { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--surface); background: var(--c); box-shadow: 0 0 0 1px var(--line); cursor: pointer; }
+.colors button[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--fg); }
+.colors button.auto { width: auto; border-radius: 99px; padding: 0 12px; background: var(--surface-2); color: var(--fg); font-weight: 700; font-size: .8rem; border: 1px solid var(--line); }
+.pontos { display: flex; flex-wrap: wrap; gap: 6px; }
+.pontos span { font-size: .8rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; background: color-mix(in srgb, var(--dc, var(--c, var(--brand))) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--dc, var(--c, var(--brand))) 40%, transparent); }
+details.dnote summary { cursor: pointer; font-weight: 700; font-size: .85rem; color: var(--muted); }
+details.dnote[open] summary { margin-bottom: 4px; }
+details.dnote { white-space: pre-wrap; }
+.drows { display: grid; gap: 8px; }
+.drow { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; align-items: center; text-align: left; background: var(--surface); border: var(--card-border); border-left: 6px solid var(--dc); border-radius: var(--radius); padding: 10px 14px; color: var(--fg); cursor: pointer; }
+.drow .dd { display: grid; justify-items: center; line-height: 1; }
+.drow .dd b { font: 900 1.7rem var(--f-display); }
+.drow .dd small { text-transform: uppercase; font-size: .7rem; font-weight: 800; color: var(--muted); }
+.drow .dt { display: grid; gap: 2px; min-width: 0; }
+.drow .dt small { color: var(--muted); font-size: .8rem; }
+.drow .dk { font: 800 .95rem var(--f-mono); white-space: nowrap; }
+.cdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 6px; vertical-align: middle; }
+.linkbtn { border: 0; background: none; color: var(--link); text-decoration: underline; font-weight: 700; cursor: pointer; padding: 0; font-size: inherit; }
+.ride-map { height: 34vh; min-height: 200px; border-radius: 14px; overflow: hidden; background: #161b19; }
+.rbday { border-left: 8px solid var(--dc, #111); }
+.rbday .rbn { background: var(--dc, #0b6b3a); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+@media print { .rbday { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

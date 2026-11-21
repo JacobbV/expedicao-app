@@ -9,7 +9,8 @@ const LOCAL = !firebaseConfig || new URLSearchParams(location.search).has("local
 const listeners = new Set();
 const state = { ready: false, user: null, profile: null, trips: [], online: navigator.onLine, pending: false, error: "", td: null };
 // Coleções de cada viagem carregadas quando ela está aberta (state.td)
-export const SUBS = ["checklist", "expenses", "lodging", "meta", "photos", "riders", "log", "points"];
+// "prep" = Meus gastos (preparação), guardados em private/{minha conta}/prep: só a própria pessoa lê
+export const SUBS = ["checklist", "expenses", "lodging", "meta", "photos", "riders", "log", "points", "prep"];
 const emptyTd = id => Object.fromEntries([["id", id], ["ready", false], ...SUBS.map(c => [c, {}])]);
 const emit = () => listeners.forEach(fn => { try { fn(state); } catch (e) { console.error(e); } });
 export const onChange = fn => { listeners.add(fn); fn(state); return () => listeners.delete(fn); };
@@ -47,6 +48,7 @@ function localStore() {
   let db = {}; try { db = JSON.parse(localStorage.getItem(K) || "{}"); } catch (e) {}
   db.users ||= {}; db.trips ||= {}; db.invites ||= {}; db.sub ||= {}; db.session ||= null;
   const save = () => { try { localStorage.setItem(K, JSON.stringify(db)); } catch (e) {} };
+  const lc = c => c === "prep" ? "prep:" + db.session : c; // Meus gastos: um por conta
   const refresh = () => {
     const u = db.session && db.users[db.session];
     state.user = u ? { uid: u.uid, email: u.email, displayName: u.name, photoURL: "", provider: "password" } : null;
@@ -85,17 +87,17 @@ function localStore() {
     openTrip(id) {
       if (state.td?.id === id) return;
       const sub = db.sub[id] || {}; state.td = emptyTd(id);
-      SUBS.forEach(c => { state.td[c] = JSON.parse(JSON.stringify(sub[c] || {})); }); state.td.ready = true; setTimeout(emit, 0);
+      SUBS.forEach(c => { state.td[c] = JSON.parse(JSON.stringify(sub[lc(c)] || {})); }); state.td.ready = true; setTimeout(emit, 0);
     },
     closeTrip() { state.td = null; },
     async put(coll, id, data, merge = true) {
-      const t = state.td?.id; if (!t) return; db.sub[t] ||= {}; db.sub[t][coll] ||= {};
-      db.sub[t][coll][id] = merge ? { ...(db.sub[t][coll][id] || {}), ...data } : data; save();
-      if (state.td[coll]) state.td[coll][id] = JSON.parse(JSON.stringify(db.sub[t][coll][id])); emit();
+      const t = state.td?.id; if (!t) return; const k = lc(coll); db.sub[t] ||= {}; db.sub[t][k] ||= {};
+      db.sub[t][k][id] = merge ? { ...(db.sub[t][k][id] || {}), ...data } : data; save();
+      if (state.td[coll]) state.td[coll][id] = JSON.parse(JSON.stringify(db.sub[t][k][id])); emit();
     },
     async add(coll, data) { const id = newId(); await this.put(coll, id, data, false); return id; },
-    async del(coll, id) { const t = state.td?.id; if (!t) return; delete db.sub[t]?.[coll]?.[id]; if (state.td[coll]) delete state.td[coll][id]; save(); emit(); },
-    async getOne(coll, id) { const t = state.td?.id; return db.sub[t]?.[coll]?.[id] || null; },
+    async del(coll, id) { const t = state.td?.id; if (!t) return; delete db.sub[t]?.[lc(coll)]?.[id]; if (state.td[coll]) delete state.td[coll][id]; save(); emit(); },
+    async getOne(coll, id) { const t = state.td?.id; return db.sub[t]?.[lc(coll)]?.[id] || null; },
     async updateMyMember(id, patch) { const t = db.trips[id], uid = db.session; t.members[uid] = { ...t.members[uid], ...patch }; save(); refresh(); },
     async removeMember(id, uid) { const t = db.trips[id]; t.memberIds = t.memberIds.filter(x => x !== uid); delete t.members[uid]; save(); refresh(); },
     async leaveTrip(id) { return this.removeMember(id, db.session); },
@@ -110,6 +112,8 @@ function localStore() {
 /* =========================== modo nuvem =========================== */
 function cloudStore() {
   let fb, fs, au, auth, db, unsubTrips = null, unsubProfile = null, unsubTd = [];
+  const collOf = (t, c) => c === "prep" ? fs.collection(db, "trips", t, "private", auth.currentUser.uid, "prep") : fs.collection(db, "trips", t, c);
+  const docOf = (t, c, id) => c === "prep" ? fs.doc(db, "trips", t, "private", auth.currentUser.uid, "prep", id) : fs.doc(db, "trips", t, c, id);
   const ready = (async () => {
     const [appMod, fsMod, auMod] = await Promise.all([import(SDK + "firebase-app.js"), import(SDK + "firebase-firestore.js"), import(SDK + "firebase-auth.js")]);
     fs = fsMod; au = auMod;
@@ -176,7 +180,7 @@ function cloudStore() {
       this.closeTrip(); state.td = emptyTd(id); let left = SUBS.length;
       ready.then(() => {
         if (state.td?.id !== id) return;
-        unsubTd = SUBS.map(c => fs.onSnapshot(fs.collection(db, "trips", id, c), qs => {
+        unsubTd = SUBS.map(c => fs.onSnapshot(collOf(id, c), qs => {
           if (state.td?.id !== id) return;
           const m = {}; qs.docs.forEach(d => { m[d.id] = d.data(); }); state.td[c] = m;
           if (!state.td.ready && --left <= 0) state.td.ready = true; emit();
@@ -184,10 +188,10 @@ function cloudStore() {
       });
     },
     closeTrip() { unsubTd.forEach(u => u()); unsubTd = []; state.td = null; },
-    put: (coll, id, data, merge = true) => w(() => { const t = state.td?.id; if (!t) return; return fs.setDoc(fs.doc(db, "trips", t, coll, id), data, { merge }); }),
-    add: (coll, data) => w(() => { const t = state.td?.id, ref = fs.doc(fs.collection(db, "trips", t, coll)); fs.setDoc(ref, data).catch(e => console.error(e)); return ref.id; }),
-    del: (coll, id) => w(() => { const t = state.td?.id; if (!t) return; return fs.deleteDoc(fs.doc(db, "trips", t, coll, id)); }),
-    getOne: (coll, id) => w(async () => { const t = state.td?.id, s = await fs.getDoc(fs.doc(db, "trips", t, coll, id)); return s.exists() ? s.data() : null; }),
+    put: (coll, id, data, merge = true) => w(() => { const t = state.td?.id; if (!t) return; return fs.setDoc(docOf(t, coll, id), data, { merge }); }),
+    add: (coll, data) => w(() => { const t = state.td?.id, ref = fs.doc(collOf(t, coll)); fs.setDoc(ref, data).catch(e => console.error(e)); return ref.id; }),
+    del: (coll, id) => w(() => { const t = state.td?.id; if (!t) return; return fs.deleteDoc(docOf(t, coll, id)); }),
+    getOne: (coll, id) => w(async () => { const t = state.td?.id, s = await fs.getDoc(docOf(t, coll, id)); return s.exists() ? s.data() : null; }),
     rotateInvite: t => w(async () => {
       const code = newCode(), b = fs.writeBatch(db);
       b.update(fs.doc(db, "trips", t.id), { invite: code });

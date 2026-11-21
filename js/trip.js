@@ -45,19 +45,35 @@ const rname = u => (rider(u).nome || "Piloto").split(" ")[0];
 const avgSpeed = () => Number(trip.avgSpeed) || 65;
 export const tripDaysList = t => (t.days || []).map((d, i) => ({ ...d, i, n: i + 1, date: t.inicio ? addDays(t.inicio, i) : "" }));
 const days = () => tripDaysList(trip);
-const isRoad = d => (d.tipo || "estrada") === "estrada";
-const TIPO = { estrada: "Dia de estrada", passeio: "Passeio", descanso: "Descanso" };
-const viaList = d => (d.via || "").split(/[,;→>\n]+/).map(s => s.trim()).filter(Boolean);
-const stopNames = d => [d.origem, ...viaList(d), d.destino].map(s => (s || "").trim()).filter(Boolean);
+// "misto": dia de estrada que termina com passeio leve na chegada
+const isRoad = d => ["estrada", "misto"].includes(d.tipo || "estrada");
+const TIPO = { estrada: "Dia de estrada", misto: "Estrada + passeio", passeio: "Passeio", descanso: "Descanso" };
+// Cidades separadas por vírgula, "·", "→", ";" ou linha. Texto entre parênteses é nota e fica de fora.
+const splitPlaces = t => (t || "").replace(/\([^)]*\)/g, " ").split(/[,;→>\n·•|]+|\s+-\s+(?![A-Z]{2}\b)/).map(s => s.replace(/\.$/, "").trim()).filter(s => s && s.length < 60);
+const viaList = d => splitPlaces(d.via);
+const samePlace = (a, b) => low(a).replace(/\s*-\s*[a-z]{2}$/, "") === low(b).replace(/\s*-\s*[a-z]{2}$/, "");
+function stopNames(d) {
+  const raw = isRoad(d) ? [d.origem, ...viaList(d), d.destino] : d.tipo === "passeio" ? viaList(d) : [];
+  const out = []; raw.map(x => (x || "").trim()).filter(Boolean).forEach((x, i, a) => {
+    // tira repetição (ex.: caminho que já começa na cidade de saída)
+    if (out.length && samePlace(out[out.length - 1], x)) { if (i === a.length - 1) out[out.length - 1] = x; return; }
+    out.push(x);
+  });
+  return out;
+}
+const hasRoute = d => d.tipo !== "descanso" && stopNames(d).length >= 2;
+export const DAY_COLORS = [["vermelho", "#c8102e"], ["rosa", "#e85b9c"], ["azul", "#1d4ed8"], ["laranja", "#e8590c"], ["verde", "#16a34a"], ["roxo", "#7c3aed"], ["cinza", "#6b7280"]];
+const dayColor = d => (DAY_COLORS.find(c => c[0] === d.cor) || [])[1] || ({ estrada: "#c8102e", misto: "#e85b9c", passeio: "#1d4ed8", descanso: "#6b7280" }[d.tipo || "estrada"]);
 const sigOf = d => low(stopNames(d).join("|"));
 // onde a pessoa dorme / passa o dia
 function dayPlace(d) {
-  if (isRoad(d) || d.destino) return d.destino || d.origem || "";
-  const ds = days(); for (let i = d.i - 1; i >= 0; i--) if (ds[i].destino) return ds[i].destino;
-  return d.origem || trip.destino || "";
+  if (isRoad(d)) return d.destino || d.origem || "";
+  if (d.origem) return d.origem;
+  const ds = days(); for (let i = d.i - 1; i >= 0; i--) if (ds[i].destino || (ds[i].tipo !== "estrada" && ds[i].origem)) return ds[i].destino || ds[i].origem;
+  return trip.destino || "";
 }
 function dayTitle(d) {
-  if (isRoad(d)) return d.origem || d.destino ? `${d.origem || "?"} → ${d.destino || "?"}` : "Dia de estrada a definir";
+  if (isRoad(d)) return d.titulo || (d.origem || d.destino ? `${d.origem || "?"} → ${d.destino || "?"}` : "Dia de estrada a definir");
   const p = dayPlace(d);
   return d.titulo || (d.tipo === "passeio" ? `Passeio${p ? " em " + p : ""}` : `Descanso${p ? " em " + p : ""}`);
 }
@@ -86,23 +102,24 @@ function saveDays(list) {
 /* ---------- cálculo da rota de cada dia (cidades → estrada) ---------- */
 const computing = new Set();
 async function computeDay(d, force) {
-  if (!isRoad(d) || stopNames(d).length < 2) return null;
+  if (!hasRoute(d)) return null;
   const sig = sigOf(d);
   if (!force && d.geo?.sig === sig && d.geo.km) return d.geo;
   if (computing.has(d.id)) return null; computing.add(d.id);
   try {
-    const pts = []; let prev = days()[d.i - 1]?.geo?.pts?.slice(-1)[0] || null;
-    for (const n of stopNames(d)) { const p = await geocode(n, prev); if (p) { pts.push({ name: n, lat: +p.lat.toFixed(5), lng: +p.lng.toFixed(5) }); prev = p; } }
-    if (pts.length < 2) return null;
+    const pts = [], miss = []; let prev = days()[d.i - 1]?.geo?.pts?.slice(-1)[0] || null;
+    if (!navigator.onLine) return null;
+    for (const n of stopNames(d)) { const p = await geocode(n, prev); if (p) { pts.push({ name: n, lat: +p.lat.toFixed(5), lng: +p.lng.toFixed(5) }); prev = p; } else miss.push(n); }
+    if (pts.length < 2) { const list = days(), cur = list.find(x => x.id === d.id); if (cur && sigOf(cur) === sig && miss.length) { cur.geo = { sig, pts, km: null, miss }; saveDays(list); } return null; }
     const R = await roadRoute(pts);
-    const geo = { sig, pts, km: Math.round(R ? R.km : lineKm(pts.map(p => [p.lat, p.lng])) * 1.25), road: !!R, legs: R ? R.legs.map(Math.round) : null };
+    const geo = { sig, pts, km: Math.round(R ? R.km : lineKm(pts.map(p => [p.lat, p.lng])) * 1.25), road: !!R, legs: R ? R.legs.map(Math.round) : null, miss };
     const list = days(); const cur = list.find(x => x.id === d.id); if (!cur || sigOf(cur) !== sig) return null;
     cur.geo = geo; saveDays(list); return geo;
   } finally { computing.delete(d.id); }
 }
 function computeMissing() {
   if (!navigator.onLine) return;
-  days().filter(d => isRoad(d) && stopNames(d).length >= 2 && d.geo?.sig !== sigOf(d)).slice(0, 3).forEach(d => computeDay(d).then(g => { if (g) redraw(); }));
+  days().filter(d => hasRoute(d) && d.geo?.sig !== sigOf(d)).slice(0, 3).forEach(d => computeDay(d).then(g => { if (g) redraw(); }));
 }
 async function dayLine(d) {
   if (!d.geo?.pts || d.geo.pts.length < 2) return null;
@@ -166,18 +183,20 @@ function fillWx(root = document) {
 const fuelCons = u => realCons(u) || Number(rider(u).consumo) || null;
 const autonomy = u => (Number(rider(u).tanque) || 0) * (fuelCons(u) || 0);
 async function fuelPlanDay(d) {
-  if (!isRoad(d) || !d.geo?.pts) return null;
+  if (!hasRoute(d) || !d.geo?.pts) return null;
   const line = await dayLine(d); if (!line) return null;
   const total = dayKm(d) || Math.round(lineKm(line));
-  const postos = await fuelOnRoute(line);
+  const F = await fuelOnRoute(line), postos = Array.isArray(F) ? F : F?.postos || null;
   const cities = dayStops(d).slice(1, -1).map(s => ({ name: s.name, km: s.km, city: true }));
   const cands = [...(postos || []).map(p => ({ ...p, name: p.city ? `${p.name} · ${p.city}` : p.name })), ...cities].sort((a, b) => a.km - b.km);
-  return { total, postos: postos || [], offline: !postos, riders: riderIds().map(u => { const aut = autonomy(u); return aut ? { u, aut, ...planFuel(cands, total, aut * .8) } : { u, missing: true }; }) };
+  // sem a lista de postos (servidor fora do ar), o plano usa só as cidades do caminho e não acusa "trecho sem posto"
+  return { total, postos: postos || [], offline: !postos, riders: riderIds().map(u => { const aut = autonomy(u); if (!aut) return { u, missing: true };
+    const P = planFuel(cands, total, aut * .8); if (!postos) P.warn = null; return { u, aut, ...P }; }) };
 }
 function fuelLine(P, compact) {
   if (!P) return `<span class="muted">calculando…</span>`;
-  return P.riders.map(r => `<div><b>${esc(rname(r.u))}:</b> ${r.missing ? `<span class="muted">informe consumo e tanque em “Minha moto”</span>`
-    : r.stops.length ? r.stops.map(s => `${s.city ? "" : "⛽ "}${esc(s.name)}${compact ? "" : ` <span class="muted">km ${num(s.km)}</span>`}`).join(" → ") : r.warn ? "abasteça antes de sair e onde puder" : "um tanque dá até o destino"}${r.warn ? ` <span class="chip warn">⚠ ${num(r.warn.gap)} km sem posto</span>` : ""}</div>`).join("");
+  return (P.offline ? `<div class="muted small">⏳ Não deu para consultar os postos agora (servidor do mapa ocupado ou sem internet). Por enquanto, paradas nas cidades do caminho. <button class="linkbtn" data-t="fuelRetry">Tentar de novo</button></div>` : "") + P.riders.map(r => `<div><b>${esc(rname(r.u))}:</b> ${r.missing ? `<span class="muted">informe consumo e tanque em “Minha moto”</span>`
+    : r.stops.length ? r.stops.map(s => `${s.city ? "" : "⛽ "}${esc(s.name)}${compact ? "" : ` <span class="muted">km ${num(s.km)}</span>`}`).join(" → ") : r.warn ? "abasteça antes de sair e onde puder" : P.offline && P.total > r.aut * .8 ? "abasteça nas cidades do caminho" : "um tanque dá até o destino"}${r.warn ? ` <span class="chip warn">⚠ ${num(r.warn.gap)} km sem posto</span>` : ""}</div>`).join("");
 }
 function fillFuel(root = document) {
   root.querySelectorAll("[data-fuel]").forEach(el => {
@@ -187,9 +206,21 @@ function fillFuel(root = document) {
 }
 
 /* ---------- gastos ---------- */
-export const CATS = [["combustivel", "Combustível", "⛽"], ["hospedagem", "Hospedagem", "🛏️"], ["comida", "Comida", "🍽️"], ["pedagio", "Pedágio", "🛣️"], ["passeio", "Passeios", "🎟️"], ["manutencao", "Manutenção", "🔧"], ["outros", "Outros", "🧾"]];
-const catOf = k => CATS.find(c => c[0] === k) || CATS[CATS.length - 1];
-const expenses = () => Object.entries(TD().expenses || {}).map(([id, e]) => ({ id, ...e })).sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.created || 0) - (a.created || 0));
+// Categorias (as mesmas da Expedição Chapada, para importar a planilha de lá sem perder nada)
+export const CATS = [["combustivel", "Combustível", "⛽"], ["hospedagem", "Hospedagem", "🛏️"], ["alimentacao", "Alimentação", "🍽️"], ["pedagio", "Pedágio", "🛣️"],
+  ["passeio", "Passeios e guias", "🎟️"], ["estacionamento", "Estacionamento", "🅿️"], ["imprevisto", "Imprevistos na estrada", "⚠️"], ["moto", "Moto: manutenção e conserto", "🔧"],
+  ["equipamentos", "Equipamentos", "🧳"], ["protecao", "Equipamentos de proteção", "🦺"], ["ferramentas", "Ferramentas", "🧰"], ["bagagem", "Bagagem", "🎒"],
+  ["navegacao", "Navegação e estrada", "🧭"], ["roupas", "Roupas e higiene", "👕"], ["trilhas", "Trilhas e cachoeiras", "🥾"], ["fotos", "Fotos e comunicação", "📷"],
+  ["medicamentos", "Medicamentos", "💊"], ["outros", "Outros", "🧾"]];
+const CAT_ALIAS = { comida: "alimentacao", manutencao: "moto", conserto: "moto", equipamento: "protecao" };
+const catOf = k => CATS.find(c => c[0] === (CAT_ALIAS[k] || k)) || CATS[CATS.length - 1];
+const PREP_CATS = ["moto", "equipamentos", "protecao", "ferramentas", "bagagem", "navegacao", "roupas", "fotos", "medicamentos", "outros"];
+const byNew = (a, b) => (b.date || "").localeCompare(a.date || "") || (b.created || 0) - (a.created || 0);
+// Gastos da viagem (todos veem). Os que vieram de "Meus gastos" (fromPrep) só aparecem, não entram na divisão.
+const allExpenses = () => Object.entries(TD().expenses || {}).map(([id, e]) => ({ id, ...e })).sort(byNew);
+const expenses = () => allExpenses().filter(e => !e.fromPrep);
+// Meus gastos de preparação (só eu vejo, a menos que marque "exibir para o grupo")
+const prepList = () => Object.entries(TD().prep || {}).map(([id, e]) => ({ id, ...e })).sort(byNew);
 function settlement() {
   const ids = riderIds(), list = expenses().filter(e => e.shared !== false);
   const total = list.reduce((s, e) => s + (Number(e.amount) || 0), 0), share = ids.length ? total / ids.length : 0;
@@ -227,17 +258,25 @@ function signHTML() {
     <div class="srow"><span><span class="arr">↓</span>${esc(trip.origem)}</span><span class="km">${fmtD(trip.fim)}</span></div>
   </div>`;
 }
+const extrasHTML = d => [d.trilha ? `🥾 Trilha ${esc(d.trilha)}` : "", d.terra ? "🟫 tem trecho de terra" : ""].filter(Boolean).map(x => `<span class="chip">${x}</span>`).join(" ");
+const pontosHTML = d => { const P = splitPlaces(d.pontos); return P.length ? `<div class="pontos">${P.map(x => `<span>${esc(x)}</span>`).join("")}</div>` : ""; };
+function timeLine(d) {
+  const ar = dayArrive(d);
+  return `${d.saida ? `🕓 <b>${hhmm(toH(d.saida))}</b>${ar != null && hasRoute(d) ? ` → ~${hhmm(ar)}` : ""}` : `<span class="muted">sem horário de saída</span>`}${dayKm(d) ? ` · 🏍️ <b>${num(dayKm(d))} km</b> de moto${isRoad(d) ? ` · ${dur(dayHours(d))} de estrada` : ""}` : ""}`;
+}
 function dayPreview(d, label) {
-  const lg = lodgingFor(d), ar = dayArrive(d);
-  return `<div class="card day-prev" style="--c:${isRoad(d) ? ROAD : "var(--brand)"}">
+  const lg = lodgingFor(d), route = hasRoute(d) || dayKm(d);
+  return `<div class="card day-prev" style="--c:${dayColor(d)}">
     <div class="between"><span class="label">${label} · ${d.date ? fmtDW(d.date) : "Dia " + d.n}</span><a class="small" href="${link("roteiro")}">Dia ${d.n} de ${days().length}</a></div>
     <h3 style="margin:0">${esc(dayTitle(d))}</h3>
+    ${pontosHTML(d)}
     <div class="sect"><div class="label">Tempo</div><div data-wx="${d.id}"><span class="muted small">carregando…</span></div><div data-late></div></div>
-    ${isRoad(d) ? `<div class="sect"><div class="label">Horário e distância</div><div class="kvline">${d.saida ? `🕓 <b>${hhmm(toH(d.saida))}</b>${ar != null ? ` → ~${hhmm(ar)}` : ""}` : `<span class="muted">sem horário de saída</span>`}${dayKm(d) ? ` · 🛣️ <b>${num(dayKm(d))} km</b> · ${dur(dayHours(d))} de estrada` : ""}</div>${isLong(d) ? `<span class="chip warn">⚠ dia longo</span>` : ""}</div>
-    <div class="sect"><div class="label">Abastecimento</div><div data-fuel="${d.id}" data-compact="1" class="small"><span class="muted">calculando…</span></div></div>` : d.nota ? `<p class="muted" style="margin:0">${esc(d.nota)}</p>` : ""}
+    ${route || d.saida ? `<div class="sect"><div class="label">Horário e distância</div><div class="kvline">${timeLine(d)}</div>${isLong(d) ? `<span class="chip warn">⚠ dia longo</span>` : ""}${extrasHTML(d) ? `<div>${extrasHTML(d)}</div>` : ""}</div>` : ""}
+    ${hasRoute(d) ? `<div class="sect"><div class="label">Abastecimento</div><div data-fuel="${d.id}" data-compact="1" class="small"><span class="muted">calculando…</span></div></div>` : ""}
+    ${d.nota ? `<details class="dnote"><summary>Observações</summary>${esc(d.nota)}</details>` : ""}
     <div class="sect"><div class="label">Pernoite</div>${lg ? `🛏️ <b>${esc(lg.nome)}</b> <span class="chip ${lg.status === "ideia" ? "" : "ok"}">${STATUS[lg.status] || "Opção"}</span>` : d.pernoite ? `🛏️ ${esc(d.pernoite)}` : `<a href="${link("hospedagem")}">a definir</a>`}</div>
     <div class="quick">
-      ${isRoad(d) && gmapsUrl(d) ? `<a class="qbtn" href="${gmapsUrl(d)}" target="_blank" rel="noopener">${ico("nav")}Navegar</a>` : ""}
+      ${gmapsUrl(d) ? `<a class="qbtn" href="${gmapsUrl(d)}" target="_blank" rel="noopener">${ico("nav")}Navegar</a>` : ""}
       <a class="qbtn" href="${link("mapa", d.id)}">${ico("mapa")}Mapa</a>
       <button class="qbtn" data-t="wxDay" data-id="${d.id}">${ico("tempo")}Tempo</button>
       <a class="qbtn" href="${link("roadbook")}">${ico("roadbook")}Roadbook</a>
@@ -267,45 +306,54 @@ function vMais() { return `<div class="view"><h2>Mais</h2>${maisGrid()}</div>`; 
 
 /* =========================== ROTEIRO =========================== */
 function dayCard(d) {
-  const lg = lodgingFor(d), ar = dayArrive(d), road = isRoad(d), names = stopNames(d);
-  const dayOk = trip.fim && d.date && d.date > trip.fim;
-  return `<article class="dcard ${road ? "road" : d.tipo}" id="d-${d.id}">
-    <header><span class="dn">${d.n}</span><div><b>${d.date ? `${WDL[parseISO(d.date).getDay()]}, ${fmtD(d.date)}` : "Dia " + d.n}</b><small>${TIPO[d.tipo || "estrada"]}${dayOk ? " · depois da volta marcada" : ""}</small></div>
+  const lg = lodgingFor(d), road = isRoad(d), names = stopNames(d), route = hasRoute(d);
+  const late = trip.fim && d.date && d.date > trip.fim;
+  return `<article class="dcard" id="d-${d.id}" style="--dc:${dayColor(d)}">
+    <header><span class="dn">${d.n}</span><div><b>${d.date ? `${WDL[parseISO(d.date).getDay()]}, ${fmtD(d.date)}` : "Dia " + d.n}</b><small>${TIPO[d.tipo || "estrada"]}${late ? " · depois da volta marcada" : ""}</small></div>
       <button class="ibtn" data-t="dayMenu" data-id="${d.id}" aria-label="Opções do dia">⋯</button></header>
     <h3>${esc(dayTitle(d))}</h3>
-    ${road && names.length > 2 ? `<div class="via">${names.map(esc).join(' <span class="arr">→</span> ')}</div>` : ""}
-    ${road ? `<div class="kvline">${dayKm(d) ? `🛣️ <b>${num(dayKm(d))} km</b> · ${dur(dayHours(d))} de estrada` : names.length >= 2 ? `<span class="muted">${navigator.onLine ? "calculando a rota…" : "sem internet para calcular a rota"}</span>` : `<span class="muted">informe saída e destino</span>`}
-      ${d.saida ? ` · 🕓 ${hhmm(toH(d.saida))}${ar != null ? ` → ~${hhmm(ar)}` : ""}` : ""}</div>
-      ${isLong(d) ? `<div class="chip warn">⚠ Dia longo: ${dur(dayHours(d))} de estrada. Vale dividir em dois dias ou sair mais cedo.</div>` : ""}<div data-late></div>` : ""}
+    ${names.length > (road ? 2 : 1) ? `<div class="via">${names.map(esc).join(' <span class="arr">→</span> ')}</div>` : ""}
+    ${pontosHTML(d)}
+    ${route || d.saida || dayKm(d) ? `<div class="kvline">${route && !dayKm(d) ? `<span class="muted">${d.geo?.miss?.length && d.geo.sig === sigOf(d) ? "sem rota: faltam pontos no mapa" : navigator.onLine ? "calculando a rota…" : "sem internet para calcular a rota"}</span>${d.saida ? " · " + timeLine(d) : ""}` : timeLine(d)}</div>` : road ? `<div class="kvline"><span class="muted">informe saída e destino</span></div>` : ""}
+    ${extrasHTML(d) ? `<div>${extrasHTML(d)}</div>` : ""}
+    ${isLong(d) ? `<div class="chip warn">⚠ Dia longo: ${dur(dayHours(d))} de estrada. Vale dividir em dois dias ou sair mais cedo.</div>` : ""}<div data-late></div>
+    ${d.geo?.miss?.length && d.geo.sig === sigOf(d) ? `<div class="chip warn">⚠ Não achei no mapa: ${d.geo.miss.map(esc).join(", ")}. Confira a escrita (ex.: “Sousa - PB”); a rota segue sem ${d.geo.miss.length > 1 ? "esses pontos" : "esse ponto"}.</div>` : ""}
     <div class="wxrow" data-wx="${d.id}"></div>
-    ${road ? `<div class="sect"><div class="label">Abastecimento</div><div class="small" data-fuel="${d.id}" data-compact="1"><span class="muted">…</span></div></div>` : ""}
-    ${d.nota ? `<p class="dnote">${esc(d.nota)}</p>` : ""}
+    ${route ? `<div class="sect"><div class="label">Abastecimento</div><div class="small" data-fuel="${d.id}" data-compact="1"><span class="muted">…</span></div></div>` : ""}
+    ${d.nota ? `<details class="dnote"><summary>Observações</summary>${esc(d.nota)}</details>` : ""}
     <div class="sect"><div class="label">Pernoite</div>${lg ? `🛏️ <b>${esc(lg.nome)}</b> <span class="chip ${lg.status === "ideia" ? "" : "ok"}">${STATUS[lg.status] || "Opção"}</span>` : d.pernoite ? `🛏️ ${esc(d.pernoite)}` : `<a href="${link("hospedagem")}" class="small">a definir</a>`}</div>
     <footer>
-      ${road && gmapsUrl(d) ? `<a class="btn sm" href="${gmapsUrl(d)}" target="_blank" rel="noopener">Google Maps</a>` : ""}
-      ${road && wazeUrl(d) ? `<a class="btn sm" href="${wazeUrl(d)}" target="_blank" rel="noopener">Waze</a>` : ""}
+      ${gmapsUrl(d) ? `<a class="btn sm" href="${gmapsUrl(d)}" target="_blank" rel="noopener">Google Maps</a>` : ""}
+      ${route && wazeUrl(d) ? `<a class="btn sm" href="${wazeUrl(d)}" target="_blank" rel="noopener">Waze</a>` : ""}
+      ${route ? `<a class="btn sm" href="${link("mapa", d.id)}">Mapa</a>` : ""}
       <button class="btn sm" data-t="wxDay" data-id="${d.id}">Tempo</button>
       <button class="btn sm" data-t="editDay" data-id="${d.id}">Editar</button>
     </footer>
   </article>`;
 }
+function dayRow(d) {
+  const sub = [TIPO[d.tipo || "estrada"], d.saida ? "saída " + hhmm(toH(d.saida)) : "", isRoad(d) && dayArrive(d) != null ? "chegada ~" + hhmm(dayArrive(d)) : "", d.trilha ? "trilha " + d.trilha : ""].filter(Boolean).join(" · ");
+  return `<button class="drow" data-t="openDay" data-id="${d.id}" style="--dc:${dayColor(d)}">
+    <span class="dd"><b>${d.date ? parseISO(d.date).getDate() : d.n}</b><small>${d.date ? WD[parseISO(d.date).getDay()] : "dia"}</small></span>
+    <span class="dt"><b>${esc(dayTitle(d))}</b><small>${esc(sub)}</small></span>
+    <span class="dk">${dayKm(d) ? num(dayKm(d)) + " km" : ""}</span></button>`;
+}
 function vRoteiro() {
-  const ds = days(), span = trip.inicio && trip.fim ? diffDays(trip.inicio, trip.fim) + 1 : null;
-  const kmT = ds.filter(isRoad).reduce((s, d) => s + (dayKm(d) || 0), 0), hT = kmT / avgSpeed();
+  const ds = days(), span = trip.inicio && trip.fim ? diffDays(trip.inicio, trip.fim) + 1 : null, compact = ls.get("rtView", "cards") === "lista";
+  const kmT = ds.reduce((s, d) => s + (dayKm(d) || 0), 0), kmR = ds.filter(isRoad).reduce((s, d) => s + (dayKm(d) || 0), 0), hT = kmR / avgSpeed();
   const nRoad = ds.filter(isRoad).length;
   setTimeout(computeMissing, 50);
   return `<div class="view">
-    <div class="between"><h2>Roteiro</h2><button class="btn sm" data-t="routeCfg">Média ${num(avgSpeed())} km/h</button></div>
+    <div class="between"><h2>Roteiro</h2><div class="row"><div class="seg sm">${[["cards", "Detalhado"], ["lista", "Lista"]].map(([k, l]) => `<button type="button" data-t="rtView" data-v="${k}" aria-pressed="${(compact ? "lista" : "cards") === k}">${l}</button>`).join("")}</div><button class="btn sm" data-t="routeCfg">Média ${num(avgSpeed())} km/h</button></div></div>
     ${ds.length ? `<div class="stats">
-      <div class="stat"><div class="v">${ds.length}</div><div class="k">${ds.length === 1 ? "dia" : "dias"}${span && span !== ds.length ? ` (viagem tem ${span})` : ""}</div></div>
-      <div class="stat"><div class="v">${nRoad}</div><div class="k">de estrada</div></div>
-      <div class="stat"><div class="v">${kmT ? num(kmT) : "—"}</div><div class="k">km de estrada</div></div>
-      <div class="stat"><div class="v">${kmT ? dur(hT) : "—"}</div><div class="k">pilotando, no total</div></div>
+      <div class="stat"><div class="v">${ds.length}</div><div class="k">${ds.length === 1 ? "dia" : "dias"}${span && span !== ds.length ? ` (viagem tem ${span})` : ""} · ${nRoad} de estrada</div></div>
+      <div class="stat"><div class="v">${kmT ? num(kmT) : "—"}</div><div class="k">km de moto na viagem</div></div>
+      <div class="stat"><div class="v">${kmR ? dur(hT) : "—"}</div><div class="k">de estrada nos dias de viagem</div></div>
     </div>` : `<div class="card"><h3>Monte os dias</h3><p class="muted" style="margin:0">${span ? `A viagem vai de ${fmtDW(trip.inicio)} a ${fmtDW(trip.fim)}: ${span} ${span === 1 ? "dia" : "dias"}. Crie todos de uma vez e depois preencha cada um.` : "Sem datas de ida e volta, os dias ficam numerados. Dá para pôr as datas depois em Editar viagem."}</p>
       ${span ? `<button class="btn primary" data-t="makeDays">Criar os ${span} dias</button>` : ""}</div>`}
-    <div class="dlist">${ds.map(dayCard).join("")}</div>
+    <div class="${compact ? "drows" : "dlist"}">${ds.map(compact ? dayRow : dayCard).join("")}</div>
     <button class="btn block" data-t="addDay">+ Adicionar dia</button>
-    <p class="muted small" style="margin:0">Km pela estrada (OSRM, dados do OpenStreetMap). As horas usam a média de ${num(avgSpeed())} km/h, já contando paradas rápidas. Confira antes de sair.</p>
+    <p class="muted small" style="margin:0">Km pela estrada (OSRM, dados do OpenStreetMap) a partir das cidades do caminho, ou o km que você digitar. As horas usam a média de ${num(avgSpeed())} km/h, já contando paradas rápidas. Confira antes de sair.</p>
   </div>`;
 }
 function dayForm(d, isNew, afterIdx) {
@@ -314,38 +362,51 @@ function dayForm(d, isNew, afterIdx) {
   const tipo = d.tipo || "estrada";
   openSheet(`<h3>${isNew ? "Novo dia" : `Dia ${d.n}${d.date ? " · " + fmtDW(d.date) : ""}`}</h3>
     <form id="dF">
-      <div class="seg" id="dTipo">${Object.entries(TIPO).map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${tipo === k}">${l.replace("Dia de ", "")}</button>`).join("")}</div>
-      <div class="grid2"><label class="field"><span id="lbO">Saída de</span><input id="dO" value="${esc(d.origem || "")}" placeholder="Cidade - UF"></label>
-      <label class="field"><span id="lbD">Destino</span><input id="dD" value="${esc(d.destino || "")}" placeholder="Cidade - UF"></label></div>
-      <label class="field road-only"><span>Passando por</span><input id="dV" value="${esc(d.via || "")}" placeholder="Cidades no caminho, separadas por vírgula"><small>Ajuda a rota a seguir o caminho que você quer. Ex.: Sousa, Cajazeiras, Salgueiro</small></label>
-      <label class="field pas-only"><span>Nome do passeio</span><input id="dTi" value="${esc(d.titulo || "")}" placeholder="Ex.: Cachoeira da Fumaça"></label>
-      <div class="grid2"><label class="field road-only"><span>Horário de saída</span><input id="dS" type="time" value="${esc(d.saida || "")}"></label>
-      <label class="field road-only"><span>Km (se quiser corrigir)</span><input id="dK" inputmode="numeric" value="${d.km ?? ""}" placeholder="${d.geo?.km ? "calculado: " + num(d.geo.km) : "automático"}"></label></div>
+      <div class="seg" id="dTipo">${Object.entries(TIPO).map(([k, l]) => `<button type="button" data-v="${k}" aria-pressed="${tipo === k}">${k === "estrada" ? "Estrada" : l}</button>`).join("")}</div>
+      <label class="field"><span>Título</span><input id="dTi" value="${esc(d.titulo || "")}" placeholder="Ex.: Circuito 2 · Cachoeira da Fumaça e Vale do Capão"><small class="road-only">Opcional: sem título, aparece “saída → destino”.</small></label>
+      <div class="field"><span>Cor do dia</span><div class="colors" id="dCor">${DAY_COLORS.map(([k, hex]) => `<button type="button" data-v="${k}" style="--c:${hex}" aria-pressed="${(d.cor || "") === k}" title="${k}"></button>`).join("")}<button type="button" data-v="" aria-pressed="${!d.cor}" class="auto">auto</button></div><small>Uma cor por circuito ajuda a achar o dia no roteiro e no mapa.</small></div>
+      <div class="grid2 road-only"><label class="field"><span>Saída de</span><input id="dO" value="${esc(d.origem || "")}" placeholder="Cidade - UF"></label>
+      <label class="field"><span>Destino</span><input id="dD" value="${esc(d.destino || "")}" placeholder="Cidade - UF"></label></div>
+      <label class="field base-only"><span>Cidade base</span><input id="dB" value="${esc(d.tipo !== "estrada" ? d.origem || "" : "")}" placeholder="Onde vocês estão hospedados"></label>
+      <label class="field not-rest"><span id="lbV">Passando por</span><textarea id="dV" rows="2" placeholder="Sousa · Cajazeiras · Salgueiro">${esc(d.via || "")}</textarea><small id="hV">Separe com vírgula ou “·”. A rota no mapa, os km, o tempo no caminho e o abastecimento seguem estas cidades. Use “Cidade - UF” para não confundir com outra de mesmo nome. Nota entre parênteses é ignorada.</small></label>
+      <div class="grid2"><label class="field"><span>Horário de saída</span><input id="dS" type="time" value="${esc(d.saida || "")}"></label>
+      <label class="field"><span>Km de moto</span><input id="dK" inputmode="numeric" value="${d.km ?? ""}" placeholder="${d.geo?.km ? "calculado: " + num(d.geo.km) : "automático"}"></label></div>
+      <label class="field not-rest"><span>Link do Google Maps</span><input id="dG" value="${esc(d.gmaps || "")}" placeholder="https://maps.app.goo.gl/…"><small>Monte a rota no Google Maps do jeito que vocês vão, toque em Compartilhar e cole aqui. O botão Navegar abre exatamente essa rota.</small></label>
+      <label class="field not-road"><span id="lbPo">O que tem no dia</span><input id="dPo" value="${esc(d.pontos || "")}" placeholder="Poço do Diabo · Cachoeira do Mosquito · Pai Inácio"></label>
+      <div class="grid2 not-rest"><label class="field"><span>Trilha a pé</span><input id="dTr" value="${esc(d.trilha || "")}" placeholder="Ex.: 12 km · 5 a 6 h"></label>
+      <label class="check" style="align-self:end;padding-bottom:10px"><input type="checkbox" id="dTe" ${d.terra ? "checked" : ""}> Tem trecho de terra</label></div>
       <label class="field"><span>Pernoite</span><input id="dP" value="${esc(d.pernoite || "")}" placeholder="Cidade ou pousada (detalhes em Hospedagem)"></label>
-      <label class="field road-only"><span>Link do Google Maps (opcional)</span><input id="dG" value="${esc(d.gmaps || "")}" placeholder="Cole a rota exata, se já tiver"></label>
-      <label class="field"><span>Observações</span><textarea id="dN" rows="2">${esc(d.nota || "")}</textarea></label>
+      <label class="field"><span>Observações</span><textarea id="dN" rows="4">${esc(d.nota || "")}</textarea></label>
       <p class="err" id="dErr" hidden></p>
       <div class="actions">${isNew ? `<button type="button" class="btn" data-close="1">Cancelar</button>` : `<button type="button" class="btn danger" id="dDel">Apagar dia</button>`}<button class="btn primary">Salvar</button></div>
     </form>`, sh => {
-    let t = tipo; const setT = v => { t = v; sh.querySelectorAll("#dTipo button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v));
-      sh.querySelectorAll(".road-only").forEach(e => e.hidden = v !== "estrada"); sh.querySelectorAll(".pas-only").forEach(e => e.hidden = v !== "passeio");
-      sh.querySelector("#lbO").textContent = v === "estrada" ? "Saída de" : "Base (cidade)"; sh.querySelector("#lbD").textContent = v === "estrada" ? "Destino" : "Onde (opcional)"; };
+    let t = tipo, cor = d.cor || "";
+    const setT = v => { t = v; sh.querySelectorAll("#dTipo button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v));
+      const rd = v === "estrada" || v === "misto";
+      sh.querySelectorAll(".road-only").forEach(e => e.hidden = !rd); sh.querySelectorAll(".not-road").forEach(e => e.hidden = v === "estrada"); sh.querySelectorAll(".base-only").forEach(e => e.hidden = rd); sh.querySelectorAll(".not-rest").forEach(e => e.hidden = v === "descanso");
+      sh.querySelector("#lbV").textContent = rd ? "Passando por" : "Caminho do passeio (cidades e lugares, na ordem)";
+      sh.querySelector("#dV").placeholder = rd ? "Sousa · Cajazeiras · Salgueiro" : "Lençóis · Palmeiras · Vale do Capão · Lençóis";
+      sh.querySelector("#lbPo").textContent = v === "misto" ? "Passeio na chegada" : "O que tem no dia"; };
     setT(t); sh.querySelectorAll("#dTipo button").forEach(b => b.addEventListener("click", () => setT(b.dataset.v)));
+    sh.querySelectorAll("#dCor button").forEach(b => b.addEventListener("click", () => { cor = b.dataset.v; sh.querySelectorAll("#dCor button").forEach(x => x.setAttribute("aria-pressed", x === b)); }));
     sh.querySelector("#dF").addEventListener("submit", async e => {
       e.preventDefault();
       const v = id => sh.querySelector(id).value.trim();
-      const nd = { ...d, tipo: t, origem: v("#dO"), destino: v("#dD"), via: t === "estrada" ? v("#dV") : "", titulo: t === "passeio" ? v("#dTi") : "", saida: t === "estrada" ? v("#dS") : "", km: t === "estrada" ? parseNum(v("#dK")) : null, pernoite: v("#dP"), gmaps: t === "estrada" ? v("#dG") : "", nota: v("#dN") };
-      if (t === "estrada" && (!nd.origem || !nd.destino)) { const er = sh.querySelector("#dErr"); er.textContent = "Informe a saída e o destino."; er.hidden = false; return; }
+      const road = t === "estrada" || t === "misto", rest = t === "descanso";
+      const nd = { ...d, tipo: t, cor, titulo: v("#dTi"), origem: road ? v("#dO") : v("#dB"), destino: road ? v("#dD") : "", via: rest ? "" : v("#dV"),
+        saida: v("#dS"), km: parseNum(v("#dK")), gmaps: rest ? "" : v("#dG"), pontos: t === "estrada" ? "" : v("#dPo"), trilha: rest ? "" : v("#dTr"), terra: !rest && sh.querySelector("#dTe").checked,
+        pernoite: v("#dP"), nota: v("#dN") };
+      if (road && (!nd.origem || !nd.destino)) { const er = sh.querySelector("#dErr"); er.textContent = "Informe a saída e o destino."; er.hidden = false; return; }
       ["i", "n", "date"].forEach(k => delete nd[k]);
       const list = days();
       if (isNew) list.splice(afterIdx + 1, 0, nd); else list[d.i] = { ...list[d.i], ...nd };
       saveDays(list); closeSheet(); toast(isNew ? "Dia criado" : "Dia salvo");
-      if (t === "estrada") {
-        const cur = days().find(x => x.id === nd.id);
+      const cur = days().find(x => x.id === nd.id);
+      if (cur && hasRoute(cur)) {
         const g = await computeDay(cur); redraw();
         const now = days().find(x => x.id === nd.id);
         if (g && now && isLong(now)) longDaySheet(now);
-      }
+      } else redraw();
     });
     const del = sh.querySelector("#dDel");
     if (del) armed(del, "Toque de novo para apagar", () => { const list = days().filter(x => x.id !== d.id); saveDays(list); closeSheet(); toast("Dia apagado"); redraw(); });
@@ -378,7 +439,7 @@ function dayMenu(d) {
       <button data-t="addAfter" data-id="${d.id}">${ico("mais")}Inserir um dia depois deste</button>
       ${d.i > 0 ? `<button data-t="moveDay" data-id="${d.id}" data-v="-1">${ico("cima")}Passar para antes</button>` : ""}
       ${d.i < days().length - 1 ? `<button data-t="moveDay" data-id="${d.id}" data-v="1">${ico("baixo")}Passar para depois</button>` : ""}
-      ${isRoad(d) && d.geo ? `<button data-t="recalc" data-id="${d.id}">${ico("roteiro")}Recalcular a rota</button>` : ""}
+      ${hasRoute(d) ? `<button data-t="recalc" data-id="${d.id}">${ico("roteiro")}Recalcular a rota</button>` : ""}
     </div>
     <p class="muted small" style="margin:0">As datas seguem a ordem dos dias a partir da ida.</p>
     <div class="actions"><button class="btn" data-close="1">Fechar</button></div>`);
@@ -410,7 +471,7 @@ async function wxSheet(d) {
       html += `<div class="wxbig">${i.icon}<div><b>${tC(day.tmax)} / ${tC(day.tmin)} · ${i.text}</b><small>${day.prob != null ? `chuva ${day.prob}% · ` : ""}${num(day.rain || 0, 1)} mm · vento ${Math.round(day.wind || 0)} km/h${day.dir != null ? " do " + windFrom(day.dir) : ""}${day.gust ? ` · rajadas ${Math.round(day.gust)}` : ""}${day.uv != null ? ` · UV ${Math.round(day.uv)}` : ""}</small><small>☀️ ${day.sunrise || "—"} · 🌙 ${day.sunset || "—"}</small></div></div>
         <div class="label">Em ${esc(loc.name)}, hora a hora</div>${hoursHTML(day)}`;
     }
-    if (isRoad(d) && d.geo?.pts?.length > 1 && plan.kind !== "ref") html += `<div class="label" style="margin-top:6px">No caminho, na hora em que vocês passam</div><div id="wxRoute" class="routewx"><p class="muted small">Carregando…</p></div>`;
+    if (hasRoute(d) && d.geo?.pts?.length > 1 && plan.kind !== "ref") html += `<div class="label" style="margin-top:6px">No caminho, na hora em que vocês passam</div><div id="wxRoute" class="routewx"><p class="muted small">Carregando…</p></div>`;
     html += `<p class="muted small" style="margin:0">Tempo: Open-Meteo (CC BY 4.0).</p>`;
     box.innerHTML = html;
     const rb = box.querySelector("#wxRoute");
@@ -439,10 +500,10 @@ let mapView = null, mapDay = "all";
 const mapStyle = () => ls.get("mapStyle", "padrao");
 function vMapa(extra) {
   if (extra) mapDay = extra; else if (!days().some(d => d.id === mapDay)) mapDay = "all";
-  const ds = days().filter(d => isRoad(d) && d.geo?.pts);
+  const ds = days().filter(d => hasRoute(d) && d.geo?.pts);
   return `<div class="view mapview">
     <div class="between"><h2>Mapa</h2><div class="seg sm" id="mStyle">${[["padrao", "Padrão"], ["relevo", "Relevo"], ["escuro", "Escuro"]].map(([k, l]) => `<button type="button" data-t="mapStyle" data-v="${k}" aria-pressed="${mapStyle() === k}">${l}</button>`).join("")}</div></div>
-    <div class="chips"><button class="chipb" data-t="mapDay" data-v="all" aria-pressed="${mapDay === "all"}">Toda a viagem</button>${ds.map(d => `<button class="chipb" data-t="mapDay" data-v="${d.id}" aria-pressed="${mapDay === d.id}">Dia ${d.n}</button>`).join("")}</div>
+    <div class="chips"><button class="chipb" data-t="mapDay" data-v="all" aria-pressed="${mapDay === "all"}">Toda a viagem</button>${ds.map(d => `<button class="chipb" data-t="mapDay" data-v="${d.id}" aria-pressed="${mapDay === d.id}"><i class="cdot" style="--c:${dayColor(d)}"></i>Dia ${d.n}</button>`).join("")}</div>
     <div id="map" class="map"><p class="muted center pad">Carregando o mapa…</p></div>
     <div class="row"><button class="btn sm" data-t="mapAdd">+ Marcar ponto</button><span class="muted small">ou segure o dedo (clique direito) no mapa</span></div>
     <div id="mapInfo"></div>
@@ -457,22 +518,23 @@ async function mountMap() {
 }
 async function updateMap() {
   if (!mapView || !mapView.alive()) return;
-  const ds = days().filter(d => isRoad(d) && d.geo?.pts && (mapDay === "all" || d.id === mapDay));
+  const ds = days().filter(d => hasRoute(d) && d.geo?.pts && (mapDay === "all" || d.id === mapDay));
   const pts = [];
   ds.forEach(d => { const a = d.geo.pts[0], b = d.geo.pts[d.geo.pts.length - 1];
-    if (mapDay !== "all" || true) { pts.push({ id: "s" + d.id, lat: a.lat, lng: a.lng, color: "#0b6b3a", type: "saida", name: a.name, order: mapDay === "all" ? null : null });
-      pts.push({ id: "c" + d.id, lat: b.lat, lng: b.lng, color: ROAD, type: "chegada", name: b.name, order: d.n }); } });
+    const loop = distKm(a, b) < 3;
+    if (!loop) pts.push({ id: "s" + d.id, lat: a.lat, lng: a.lng, color: "#0b6b3a", type: "saida", name: a.name });
+    pts.push({ id: "c" + d.id, lat: b.lat, lng: b.lng, color: dayColor(d), type: loop ? "mirante" : "chegada", name: loop ? dayTitle(d) : b.name, order: d.n }); });
   Object.entries(TD().points || {}).forEach(([id, p]) => { if (p.lat != null && (mapDay === "all" || !p.dayId || p.dayId === mapDay)) pts.push({ id: "p" + id, lat: p.lat, lng: p.lng, color: p.type === "perigo" ? "#e8590c" : "#1d4ed8", type: p.type, name: p.name }); });
   const key = mapDay + "|" + ds.map(d => d.geo.sig).join(";");
   mapView.setPoints(pts, key);
   const lines = await Promise.all(ds.map(dayLine));
   if (!mapView.alive()) return;
-  mapView.setRoutes(lines.filter(Boolean).map(l => ({ latlngs: l, color: ROAD })));
+  mapView.setRoutes(lines.map((l, i) => l && ({ latlngs: l, color: dayColor(ds[i]) })).filter(Boolean));
   const info = $("#mapInfo");
   if (info) { const km = ds.reduce((s, d) => s + (dayKm(d) || 0), 0);
     info.innerHTML = ds.length ? `<div class="card"><div class="between"><b>${mapDay === "all" ? "Toda a viagem" : esc(dayTitle(ds[0]))}</b><span class="tag-y">${num(km)} km</span></div>
       ${mapDay !== "all" ? `<div class="row">${gmapsUrl(ds[0]) ? `<a class="btn sm" href="${gmapsUrl(ds[0])}" target="_blank" rel="noopener">Abrir no Google Maps</a>` : ""}${wazeUrl(ds[0]) ? `<a class="btn sm" href="${wazeUrl(ds[0])}" target="_blank" rel="noopener">Waze</a>` : ""}</div>` : ""}
-      <p class="muted small" style="margin:0">Linha vermelha: rota pela estrada. Bandeira verde: saída; vermelha: chegada do dia.</p></div>`
+      <p class="muted small" style="margin:0">A linha segue as cidades do caminho, na cor do dia. Bandeira verde: saída; colorida: chegada. Para a rota exata do Google, use o botão do Google Maps.</p></div>`
       : `<div class="card"><p class="muted" style="margin:0">Nenhum dia de estrada com rota ainda. Monte o roteiro e o caminho aparece aqui.</p></div>`; }
   if (mapDay === "all" && !ds.length) mapView.map.setView([-14.2, -51.9], 4);
 }
@@ -509,7 +571,7 @@ function pointForm(id, ll) {
 
 /* =========================== ABASTECIMENTO =========================== */
 function vAbastecer() {
-  const ds = days().filter(isRoad), kmT = ds.reduce((s, d) => s + (dayKm(d) || 0), 0), price = Number(trip.gasPrice) || null;
+  const ds = days().filter(hasRoute), kmT = ds.reduce((s, d) => s + (dayKm(d) || 0), 0), price = Number(trip.gasPrice) || null;
   return `<div class="view">${back()}<div class="between"><h2>Abastecimento</h2><button class="btn sm" data-t="gasPrice">${price ? brl(price) + "/L" : "Preço da gasolina"}</button></div>
     <div class="stats">${riderIds().map(u => { const c = fuelCons(u), aut = autonomy(u), L = c ? kmT / c : null;
       return `<div class="stat"><div class="v sm">${aut ? "~" + num(aut) + " km" : "—"}</div><div class="k"><b>${esc(rname(u))}</b> · ${c ? num(c, 1) + " km/L" + (realCons(u) ? " real" : "") : "sem consumo"}${L ? ` · ~${num(L)} L${price ? " · " + brl(L * price) : ""} na viagem` : ""}</div></div>`; }).join("")}</div>
@@ -557,39 +619,59 @@ function bindChecklist() {
 }
 
 /* =========================== GASTOS =========================== */
+let gTab = "viagem";
+const sum = l => l.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+function expRow(e, act) {
+  const c = catOf(e.cat), chips = [e.fromPrep ? `<span class="chip">da preparação</span>` : "", e._prep ? (e.show ? `<span class="chip ok">exibido</span>` : `<span class="chip">🔒 privado</span>`) : "", e._trip ? `<span class="chip">da viagem</span>` : ""].join("");
+  return `<button class="exp" data-t="${act}" data-id="${e.id}"><span class="ei">${c[2]}</span><div><b>${esc(e.desc || c[1])}</b><small>${e.date ? fmtDW(e.date) : ""} · ${esc(c[1])}${act === "viewExp" || e.fromPrep ? " · " + esc(rname(e.rider)) : ""}${e.shared === false && !e.fromPrep && !e._prep ? " · só dele" : ""}${e.litros ? ` · ${num(e.litros, 2)} L` : ""}</small></div><span class="r"><b class="ev">${brl(e.amount)}</b>${chips}</span></button>`;
+}
 function vGastos() {
-  const list = expenses(), st = settlement(), ids = riderIds(), u = me();
-  const byCat = CATS.map(([k, l, i]) => ({ k, l, i, v: list.filter(e => e.cat === k).reduce((s, e) => s + (Number(e.amount) || 0), 0) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+  const st = settlement(), ids = riderIds(), u = me();
+  const tabs = `<div class="seg"><button type="button" data-t="gTab" data-v="viagem" aria-pressed="${gTab === "viagem"}">Gastos da viagem</button><button type="button" data-t="gTab" data-v="meus" aria-pressed="${gTab === "meus"}">🔒 Meus gastos</button></div>`;
+  if (gTab === "meus") {
+    const prep = prepList().map(e => ({ ...e, _prep: true })), mineTrip = expenses().filter(e => e.rider === u).map(e => ({ ...e, _trip: true }));
+    const list = [...prep, ...mineTrip].sort(byNew);
+    const byCat = CATS.map(([k, l, i]) => ({ l, i, v: sum(list.filter(e => catOf(e.cat)[0] === k)) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v), max = Math.max(1, ...byCat.map(x => x.v));
+    return `<div class="view"><div class="between"><h2>Gastos</h2><div class="row"><label class="btn sm">Importar planilha<input type="file" id="impCsv" accept=".csv,text/csv" hidden></label><button class="btn primary sm" data-t="newPrep">+ Gasto</button></div></div>${tabs}
+      <div class="note">🔒 <b>Só você vê esta aba.</b> Ela junta a preparação (pneu, revisão, equipamento…) e o que você pagou na viagem. Para mostrar um gasto da preparação aos outros pilotos, abra e ligue “Exibir para o grupo”: ele aparece em Gastos da viagem, sem entrar na divisão.</div>
+      <div class="stats"><div class="stat"><div class="v sm">${brl(sum(prep))}</div><div class="k">preparação</div></div><div class="stat"><div class="v sm">${brl(myCost(u))}</div><div class="k">sua parte na viagem</div></div>
+        <div class="stat"><div class="v sm">${brl(sum(prep) + myCost(u))}</div><div class="k">total da expedição para você</div></div><div class="stat"><div class="v sm">${brl(sum(prep.filter(e => e.show)))}</div><div class="k">exibido para o grupo</div></div></div>
+      <div class="cols"><div class="col">${byCat.length ? `<div class="card"><h3>Por categoria</h3>${byCat.map(c => `<div class="cbar"><span>${c.i} ${esc(c.l)}</span><i style="width:${Math.round(c.v / max * 100)}%"></i><b>${brl(c.v)}</b></div>`).join("")}</div>` : ""}</div>
+      <div class="col"><div class="card"><div class="between"><h3>Lançamentos</h3>${list.length ? `<button class="btn sm" data-t="csvMine">Exportar planilha</button>` : ""}</div>
+        ${list.length ? `<div class="exps">${list.map(e => expRow(e, e._prep ? "editPrep" : "editExp")).join("")}</div>` : `<p class="muted" style="margin:0">Nada ainda. Lance aqui o que gastou preparando a moto e o equipamento, ou importe a planilha “Meus gastos” exportada da Expedição Chapada.</p>`}</div></div></div>
+    </div>`;
+  }
+  const list = allExpenses();
+  const byCat = CATS.map(([k, l, i]) => ({ k, l, i, v: sum(expenses().filter(e => catOf(e.cat)[0] === k)) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
   const max = Math.max(1, ...byCat.map(x => x.v));
-  return `<div class="view"><div class="between"><h2>Gastos</h2><button class="btn primary sm" data-t="newExp">+ Gasto</button></div>
+  return `<div class="view"><div class="between"><h2>Gastos</h2><button class="btn primary sm" data-t="newExp">+ Gasto</button></div>${tabs}
     <div class="stats">
       <div class="stat"><div class="v sm">${brl(st.total)}</div><div class="k">divididos entre ${ids.length}</div></div>
       <div class="stat"><div class="v sm">${brl(st.share)}</div><div class="k">parte de cada um</div></div>
-      <div class="stat"><div class="v sm">${brl(myCost(u))}</div><div class="k">seu custo (com os só seus)</div></div>
+      <div class="stat"><div class="v sm">${brl(myCost(u))}</div><div class="k">seu custo na viagem (com os só seus)</div></div>
     </div>
     <div class="cols"><div class="col">
     <div class="card"><h3>Acerto de contas</h3>
       ${!st.total ? `<p class="muted" style="margin:0">Nenhum gasto dividido ainda.</p>` : st.moves.length ? st.moves.map(m => `<div class="move"><b>${esc(rname(m.from))}</b> paga <b>${brl(m.v)}</b> a <b>${esc(rname(m.to))}</b></div>`).join("") : `<p style="margin:0">Contas acertadas. ✅</p>`}
-      ${ids.length ? `<div class="small muted">${ids.map(r => `${esc(rname(r))} pagou ${brl(list.filter(e => e.rider === r && e.shared !== false).reduce((s, e) => s + (Number(e.amount) || 0), 0))}`).join(" · ")}</div>` : ""}
+      ${ids.length ? `<div class="small muted">${ids.map(r => `${esc(rname(r))} pagou ${brl(sum(expenses().filter(e => e.rider === r && e.shared !== false)))}`).join(" · ")}</div>` : ""}
     </div>
-    ${byCat.length ? `<div class="card"><h3>Por categoria</h3>${byCat.map(c => `<div class="cbar"><span>${c.i} ${c.l}</span><i style="width:${Math.round(c.v / max * 100)}%"></i><b>${brl(c.v)}</b></div>`).join("")}</div>` : ""}
+    ${byCat.length ? `<div class="card"><h3>Por categoria</h3>${byCat.map(c => `<div class="cbar"><span>${c.i} ${esc(c.l)}</span><i style="width:${Math.round(c.v / max * 100)}%"></i><b>${brl(c.v)}</b></div>`).join("")}</div>` : ""}
     </div><div class="col">
     <div class="card"><div class="between"><h3>Lançamentos</h3>${list.length ? `<button class="btn sm" data-t="csv">Exportar planilha</button>` : ""}</div>
-      ${list.length ? `<div class="exps">${list.map(e => { const c = catOf(e.cat); return `<button class="exp" ${e.rider === u ? `data-t="editExp" data-id="${e.id}"` : `data-t="viewExp" data-id="${e.id}"`}>
-        <span class="ei">${c[2]}</span><div><b>${esc(e.desc || c[1])}</b><small>${e.date ? fmtD(e.date) : ""} · ${esc(rname(e.rider))}${e.shared === false ? " · só dele" : ""}${e.litros ? ` · ${num(e.litros, 2)} L` : ""}</small></div><b class="ev">${brl(e.amount)}</b></button>`; }).join("")}</div>`
+      ${list.length ? `<div class="exps">${list.map(e => expRow(e, e.rider === u ? (e.fromPrep ? "editPrep" : "editExp") : "viewExp")).join("")}</div>`
       : `<p class="muted" style="margin:0">Lance combustível, hospedagem, comida e pedágio. Gasto dividido entra no acerto; gasto só seu fica fora.</p>`}
     </div></div></div>
   </div>`;
 }
+const catSelect = (sel, only) => `<select id="eK">${CATS.filter(c => !only || only.includes(c[0]) || c[0] === catOf(sel)[0]).map(([k, l, i]) => `<option value="${k}" ${catOf(sel)[0] === k ? "selected" : ""}>${i} ${l}</option>`).join("")}</select>`;
+const SHARED_DEF = ["hospedagem", "passeio", "estacionamento", "combustivel", "alimentacao", "pedagio"];
 function expForm(e) {
-  const isNew = !e; const fd = focusDay();
-  e = e || { cat: "combustivel", amount: "", desc: "", date: todayISO() < (trip.inicio || "") ? todayISO() : (fd?.date && fd.date <= todayISO() ? todayISO() : todayISO()), shared: true, rider: me() };
-  openSheet(`<h3>${isNew ? "Novo gasto" : "Editar gasto"}</h3>
+  const isNew = !e;
+  e = e || { cat: "combustivel", amount: "", desc: "", date: todayISO(), shared: true, rider: me() };
+  openSheet(`<h3>${isNew ? "Novo gasto da viagem" : "Editar gasto"}</h3>
     <form id="eF">
-      <div class="catpick">${CATS.map(([k, l, i]) => `<button type="button" data-v="${k}" aria-pressed="${e.cat === k}">${i}<span>${l}</span></button>`).join("")}</div>
-      <div class="grid2"><label class="field"><span>Valor (R$)</span><input id="eV" inputmode="decimal" value="${e.amount !== "" && e.amount != null ? num(e.amount, 2) : ""}" required placeholder="0,00"></label>
-      <label class="field"><span>Data</span><input id="eD" type="date" value="${esc(e.date || "")}"></label></div>
-      <label class="field"><span>Descrição</span><input id="eT" value="${esc(e.desc || "")}" placeholder="Ex.: Posto em Salgueiro"></label>
+      <div class="grid2"><label class="field"><span>Categoria</span>${catSelect(e.cat)}</label><label class="field"><span>Valor (R$)</span><input id="eV" inputmode="decimal" value="${e.amount !== "" && e.amount != null ? num(e.amount, 2) : ""}" required placeholder="0,00"></label></div>
+      <div class="grid2"><label class="field"><span>Data</span><input id="eD" type="date" value="${esc(e.date || "")}"></label><label class="field"><span>Descrição</span><input id="eT" value="${esc(e.desc || "")}" placeholder="Ex.: posto em Salgueiro"></label></div>
       <div class="fuel-only grid2"><label class="field"><span>Litros</span><input id="eL" inputmode="decimal" value="${e.litros != null ? num(e.litros, 2) : ""}"></label>
       <label class="field"><span>Hodômetro (km)</span><input id="eO" inputmode="numeric" value="${e.odo ?? ""}"></label></div>
       <label class="check fuel-only"><input type="checkbox" id="eC" ${e.cheio !== false ? "checked" : ""}> Tanque cheio <small class="muted">(com hodômetro, entra no consumo real)</small></label>
@@ -597,12 +679,13 @@ function expForm(e) {
       <p class="err" id="eErr" hidden></p>
       <div class="actions">${isNew ? `<button type="button" class="btn" data-close="1">Cancelar</button>` : `<button type="button" class="btn danger" id="eDel">Apagar</button>`}<button class="btn primary">Salvar</button></div>
     </form>`, sh => {
-    let cat = e.cat; const setC = v => { cat = v; sh.querySelectorAll(".catpick button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v)); sh.querySelectorAll(".fuel-only").forEach(x => x.hidden = v !== "combustivel"); };
-    setC(cat); sh.querySelectorAll(".catpick button").forEach(b => b.addEventListener("click", () => setC(b.dataset.v)));
+    const K = sh.querySelector("#eK"), setC = () => { sh.querySelectorAll(".fuel-only").forEach(x => x.hidden = K.value !== "combustivel"); if (isNew) sh.querySelector("#eS").checked = SHARED_DEF.includes(K.value); };
+    setC(); K.addEventListener("change", setC);
     sh.querySelector("#eF").addEventListener("submit", ev => { ev.preventDefault();
-      const amount = parseNum(sh.querySelector("#eV").value); if (!amount || amount <= 0) { const er = sh.querySelector("#eErr"); er.textContent = "Informe o valor."; er.hidden = false; return; }
+      const cat = K.value, amount = parseNum(sh.querySelector("#eV").value); if (!amount || amount <= 0) { const er = sh.querySelector("#eErr"); er.textContent = "Informe o valor."; er.hidden = false; return; }
+      const odo = parseNum(sh.querySelector("#eO").value);
       const data = { rider: me(), cat, amount: Math.round(amount * 100) / 100, date: sh.querySelector("#eD").value, desc: sh.querySelector("#eT").value.trim(), shared: sh.querySelector("#eS").checked,
-        litros: cat === "combustivel" ? parseNum(sh.querySelector("#eL").value) : null, odo: cat === "combustivel" ? (parseNum(sh.querySelector("#eO").value) ? Math.round(parseNum(sh.querySelector("#eO").value)) : null) : null,
+        litros: cat === "combustivel" ? parseNum(sh.querySelector("#eL").value) : null, odo: cat === "combustivel" && odo ? Math.round(odo) : null,
         cheio: cat === "combustivel" ? sh.querySelector("#eC").checked : null, created: e.created || Date.now() };
       if (isNew) store.add("expenses", data).catch(() => {}); else store.put("expenses", e.id, data, false).catch(() => {});
       closeSheet(); toast(isNew ? "Gasto lançado" : "Gasto salvo");
@@ -610,10 +693,87 @@ function expForm(e) {
     const del = sh.querySelector("#eDel"); if (del) armed(del, "Toque de novo para apagar", () => { store.del("expenses", e.id).catch(() => {}); closeSheet(); toast("Gasto apagado"); });
   });
 }
-function exportCSV() {
-  const rows = [["Data", "Categoria", "Descrição", "Valor (R$)", "Quem pagou", "Dividido", "Litros", "Hodômetro"]];
-  expenses().slice().reverse().forEach(e => rows.push([e.date ? fmtD(e.date) + "/" + e.date.slice(0, 4) : "", catOf(e.cat)[1], e.desc || "", num(e.amount, 2), rname(e.rider), e.shared === false ? "não" : "sim", e.litros ? num(e.litros, 2) : "", e.odo || ""]));
-  downloadFile(`gastos-${low(trip.name).replace(/[^a-z0-9]+/g, "-")}.csv`, rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\r\n"));
+// Gasto da preparação: fica em private/{eu}/prep; "exibir" copia para os gastos da viagem com o mesmo id (sem dividir)
+function savePrep(id, data) {
+  store.put("prep", id, data, false).catch(() => {});
+  if (data.show) store.put("expenses", id, { rider: me(), cat: data.cat, amount: data.amount, date: data.date, desc: data.desc, shared: false, fromPrep: true, created: data.created }, false).catch(() => {});
+  else if (TD().expenses?.[id]) store.del("expenses", id).catch(() => {});
+}
+function prepForm(e) {
+  const isNew = !e;
+  e = e || { cat: "moto", amount: "", desc: "", date: todayISO(), show: false };
+  openSheet(`<h3>${isNew ? "Novo gasto de preparação" : "Editar gasto"}</h3>
+    <p class="muted small" style="margin:0">🔒 Só você vê, a menos que ligue “Exibir para o grupo”.</p>
+    <form id="pF2">
+      <div class="grid2"><label class="field"><span>Categoria</span>${catSelect(e.cat, PREP_CATS)}</label><label class="field"><span>Valor (R$)</span><input id="eV" inputmode="decimal" value="${e.amount !== "" && e.amount != null ? num(e.amount, 2) : ""}" required placeholder="0,00"></label></div>
+      <div class="grid2"><label class="field"><span>Data</span><input id="eD" type="date" value="${esc(e.date || "")}"></label><label class="field"><span>Descrição</span><input id="eT" value="${esc(e.desc || "")}" placeholder="Ex.: par de pneus, kit relação, luvas"></label></div>
+      <label class="check"><input type="checkbox" id="eSh" ${e.show ? "checked" : ""}> Exibir para o grupo <small class="muted">(aparece em Gastos da viagem, sem entrar na divisão)</small></label>
+      <p class="err" id="eErr" hidden></p>
+      <div class="actions">${isNew ? `<button type="button" class="btn" data-close="1">Cancelar</button>` : `<button type="button" class="btn danger" id="eDel">Apagar</button>`}<button class="btn primary">Salvar</button></div>
+    </form>`, sh => {
+    sh.querySelector("#pF2").addEventListener("submit", ev => { ev.preventDefault();
+      const amount = parseNum(sh.querySelector("#eV").value); if (!amount || amount <= 0) { const er = sh.querySelector("#eErr"); er.textContent = "Informe o valor."; er.hidden = false; return; }
+      const data = { cat: sh.querySelector("#eK").value, amount: Math.round(amount * 100) / 100, date: sh.querySelector("#eD").value, desc: sh.querySelector("#eT").value.trim(), show: sh.querySelector("#eSh").checked, created: e.created || Date.now() };
+      savePrep(isNew ? newId() : e.id, data); closeSheet(); toast("Gasto salvo");
+    });
+    const del = sh.querySelector("#eDel"); if (del) armed(del, "Toque de novo para apagar", () => { store.del("prep", e.id).catch(() => {}); if (TD().expenses?.[e.id]) store.del("expenses", e.id).catch(() => {}); closeSheet(); toast("Gasto apagado"); });
+  });
+}
+const csvCell = c => `"${String(c ?? "").replace(/"/g, '""')}"`;
+const brDate = iso => iso ? iso.split("-").reverse().join("/") : "";
+function exportCSV(mine) {
+  if (mine) {
+    const rows = [["Data", "Origem", "Categoria", "Descrição", "Valor (R$)", "Exibido para o grupo"]];
+    [...prepList().map(e => ({ ...e, _o: "Preparação" })), ...expenses().filter(e => e.rider === me()).map(e => ({ ...e, _o: "Viagem" }))].sort(byNew).reverse()
+      .forEach(e => rows.push([brDate(e.date), e._o, catOf(e.cat)[1], e.desc || "", num(e.amount, 2), e._o === "Preparação" ? (e.show ? "sim" : "não") : ""]));
+    return downloadFile(`meus-gastos-${low(trip.name).replace(/[^a-z0-9]+/g, "-")}.csv`, rows.map(r => r.map(csvCell).join(";")).join("\r\n"));
+  }
+  const rows = [["Data", "Quem pagou", "Categoria", "Descrição", "Valor (R$)", "Dividido", "Litros", "Hodômetro"]];
+  allExpenses().slice().reverse().forEach(e => rows.push([brDate(e.date), rname(e.rider), catOf(e.cat)[1], e.desc || "", num(e.amount, 2), e.fromPrep ? "da preparação" : e.shared === false ? "não" : "sim", e.litros ? num(e.litros, 2) : "", e.odo || ""]));
+  downloadFile(`gastos-${low(trip.name).replace(/[^a-z0-9]+/g, "-")}.csv`, rows.map(r => r.map(csvCell).join(";")).join("\r\n"));
+}
+/* ---------- importar planilha (Expedição Chapada ou do próprio app) ---------- */
+function parseCSV(text) {
+  text = text.replace(/^﻿/, ""); const first = text.split(/\r?\n/)[0] || "", sep = (first.match(/;/g) || []).length >= (first.match(/,/g) || []).length ? ";" : ",";
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) { const c = text[i];
+    if (q) { if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (c === '"') q = false; else cell += c; }
+    else if (c === '"') q = true; else if (c === sep) { row.push(cell); cell = ""; } else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; } else cell += c; }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim()));
+}
+const catFromLabel = l => { const x = low(l); const c = CATS.find(([k, lab]) => low(lab) === x || k === x) || CATS.find(([, lab]) => x && low(lab).startsWith(x.split(":")[0])); return c ? c[0] : CAT_ALIAS[x] || "outros"; };
+const isoFromBr = s => { const m = /(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(s || ""); if (!m) return /^\d{4}-\d{2}-\d{2}$/.test(s || "") ? s : ""; const y = m[3].length === 2 ? "20" + m[3] : m[3]; return `${y}-${pad(m[2])}-${pad(m[1])}`; };
+function importCSV(text) {
+  const rows = parseCSV(text); if (rows.length < 2) return toast("Planilha vazia");
+  const H = rows[0].map(h => low(h)), col = (...names) => H.findIndex(h => names.some(n => h.startsWith(n)));
+  const cD = col("data"), cO = col("origem"), cC = col("categoria"), cT = col("descricao"), cV = col("valor"), cE = col("exibido"), cQ = col("quem pagou"), cS = col("dividido"), cL = col("litros"), cH = col("hodometro");
+  if (cV < 0 || cD < 0) return toast("Não reconheci a planilha: precisa ter as colunas Data e Valor");
+  const exist = new Set([...prepList(), ...expenses().filter(e => e.rider === me())].map(e => `${e.date}|${num(e.amount, 2)}|${low(e.desc)}`));
+  const myName = low(rname(me())), items = []; let dup = 0, others = 0;
+  rows.slice(1).forEach(r => {
+    const amount = parseNum((r[cV] || "").replace(/r\$\s*/i, "")); if (!amount) return;
+    const date = isoFromBr(r[cD]), desc = (r[cT] || "").trim(), cat = cC >= 0 ? catFromLabel(r[cC]) : "outros";
+    const isTrip = cO >= 0 ? low(r[cO]) === "viagem" : cQ >= 0;
+    if (cQ >= 0 && r[cQ] && low(r[cQ]).split(" ")[0] !== myName) { others++; return; } // só importo o que eu paguei
+    const key = `${date}|${num(amount, 2)}|${low(desc)}`; if (exist.has(key)) { dup++; return; } exist.add(key);
+    items.push(isTrip ? { kind: "trip", data: { rider: me(), cat, amount, date, desc, shared: cS >= 0 ? low(r[cS]) === "sim" : SHARED_DEF.includes(cat), litros: cL >= 0 ? parseNum(r[cL]) : null, odo: cH >= 0 ? parseNum(r[cH]) : null, created: Date.now() } }
+      : { kind: "prep", data: { cat, amount, date, desc, show: cE >= 0 && low(r[cE]) === "sim", created: Date.now() } });
+  });
+  const nP = items.filter(i => i.kind === "prep"), nT = items.filter(i => i.kind === "trip");
+  openSheet(`<h3>Importar planilha</h3>
+    <p style="margin:0">Encontrei <b>${items.length}</b> ${items.length === 1 ? "gasto" : "gastos"} para importar: ${nP.length} da preparação (${brl(sum(nP.map(i => i.data)))}) e ${nT.length} da viagem (${brl(sum(nT.map(i => i.data)))}).</p>
+    ${dup ? `<p class="muted small" style="margin:0">${dup} já ${dup === 1 ? "estava" : "estavam"} no app e ${dup === 1 ? "ficou" : "ficaram"} de fora.</p>` : ""}${others ? `<p class="muted small" style="margin:0">${others} ${others === 1 ? "foi pago" : "foram pagos"} por outra pessoa: cada um importa os seus.</p>` : ""}
+    <div class="exps" style="max-height:40vh;overflow:auto">${items.map((it, i) => expRow({ id: "i" + i, ...it.data, _prep: it.kind === "prep", _trip: it.kind === "trip" }, "noop")).join("")}</div>
+    <div class="actions"><button class="btn" data-close="1">Cancelar</button>${items.length ? `<button class="btn primary" id="impGo">Importar ${items.length}</button>` : ""}</div>`, sh => {
+    sh.querySelector("#impGo")?.addEventListener("click", () => {
+      items.forEach(it => it.kind === "prep" ? savePrep(newId(), it.data) : store.add("expenses", it.data).catch(() => {}));
+      closeSheet(); toast(`${items.length} ${items.length === 1 ? "gasto importado" : "gastos importados"}`);
+    });
+  });
+}
+function bindGastos() {
+  $("#impCsv")?.addEventListener("change", async e => { const f = e.target.files?.[0]; if (!f) return; importCSV(await f.text()); e.target.value = ""; });
 }
 
 /* =========================== DIÁRIO DE BORDO =========================== */
@@ -718,6 +878,7 @@ function vPilotando() {
       <div><small>Faltam</small><b id="rLeft">${dayKm(d) ? num(dayKm(d)) : "—"}</b><small>km</small></div>
       <div><small>Chegada</small><b id="rEta">${dayArrive(d) != null ? hhmm(dayArrive(d)) : "—"}</b><small>prevista</small></div>
     </div>
+    ${hasRoute(d) ? `<div id="rMap" class="ride-map"></div>` : ""}
     <div class="ride-fuel" data-fuel="${d.id}" data-compact="1"></div>
     <div class="ride-btns">
       ${gmapsUrl(d) ? `<a class="rbtn go" href="${gmapsUrl(d)}" target="_blank" rel="noopener">${ico("nav")}Navegar</a>` : ""}
@@ -731,11 +892,23 @@ async function startRide() {
   const d = focusDay();
   try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (e) {}
   const clock = setInterval(() => { const c = $("#rClock"); if (!c) return clearInterval(clock); c.textContent = nowHM(); }, 15000);
-  if (!d || !isRoad(d) || !navigator.geolocation) return;
+  if (!d || !hasRoute(d)) return;
   const line = await dayLine(d); if (!line) return;
   const total = dayKm(d) || lineKm(line);
+  // mapa pequeno com a rota do dia e a sua posição (a navegação curva a curva fica com o Google Maps ou o Waze)
+  let dot = null, follow = true, rm = null;
+  try {
+    const L = await ensureLeaflet(), el = $("#rMap");
+    if (el) { rm = new MapView(L, el, { style: "escuro", onPin: () => {}, onPlace: () => {} });
+      rm.setRoutes([{ latlngs: line, color: dayColor(d) }]); const e2 = line[line.length - 1];
+      rm.setPoints([{ id: "fim", lat: e2[0], lng: e2[1], color: dayColor(d), type: "chegada", name: d.destino || dayTitle(d) }], "ride");
+      rm.map.fitBounds(line, { padding: [24, 24] }); rm.map.on("dragstart", () => { follow = false; });
+      dot = L.circleMarker([0, 0], { radius: 9, color: "#fff", weight: 3, fillColor: "#1d8cf0", fillOpacity: 1 }); }
+  } catch (e) { /* sem mapa: segue só com os números */ }
+  if (!navigator.geolocation) return;
   watchId = navigator.geolocation.watchPosition(p => {
     ridePos = { lat: p.coords.latitude, lng: p.coords.longitude };
+    if (dot && rm?.alive()) { dot.setLatLng([ridePos.lat, ridePos.lng]); if (!rm.map.hasLayer(dot)) dot.addTo(rm.map); if (follow) rm.map.setView([ridePos.lat, ridePos.lng], Math.max(rm.map.getZoom(), 11)); }
     const a = along(line, ridePos), left = Math.max(0, total - a.km * (total / lineKm(line)));
     const el = $("#rLeft"); if (!el) return stopRide();
     if (a.off < 25) { el.textContent = num(left); const eta = new Date(Date.now() + left / avgSpeed() * 3600e3); $("#rEta").textContent = `${pad(eta.getHours())}h${pad(eta.getMinutes())}`; $("#rNote").textContent = "Pela sua posição agora, na média do roteiro."; }
@@ -864,10 +1037,12 @@ function vRoadbook() {
       <p class="muted small" style="margin:0">No celular, escolha “Salvar como PDF” na hora de imprimir. O 10×15 cabe no bolso do tanque ou no porta-mapa.</p></div>
     <div class="rb">
       <div class="rbcover"><b>${esc(trip.name)}</b><span>${esc(trip.origem)} → ${esc(trip.destino)}${trip.inicio ? ` · ${fmtD(trip.inicio)} a ${fmtD(trip.fim)}` : ""}</span><span>${riderIds().map(u => esc(rider(u).nome || "")).join(" · ")}</span></div>
-      ${ds.map(d => { const lg = lodgingFor(d), st = dayStops(d), ar = dayArrive(d); return `<section class="rbday">
-        <header><span class="rbn">${d.n}</span><div><b>${d.date ? `${WDL[parseISO(d.date).getDay()]}, ${fmtD(d.date)}` : "Dia " + d.n}</b><small>${TIPO[d.tipo || "estrada"]}</small></div>${isRoad(d) && dayKm(d) ? `<span class="rbkm">${num(dayKm(d))} km</span>` : ""}</header>
+      ${ds.map(d => { const lg = lodgingFor(d), st = dayStops(d), ar = dayArrive(d); return `<section class="rbday" style="--dc:${dayColor(d)}">
+        <header><span class="rbn">${d.n}</span><div><b>${d.date ? `${WDL[parseISO(d.date).getDay()]}, ${fmtD(d.date)}` : "Dia " + d.n}</b><small>${TIPO[d.tipo || "estrada"]}</small></div>${dayKm(d) ? `<span class="rbkm">${num(dayKm(d))} km</span>` : ""}</header>
         <h3>${esc(dayTitle(d))}</h3>
-        ${isRoad(d) ? `<div class="rbbox"><div class="rblabel">Horário</div><div>${d.saida ? `Saída <b>${hhmm(toH(d.saida))}</b>` : "Saída —"}${ar != null ? ` · chegada <b>~${hhmm(ar)}</b>` : ""}${dayHours(d) ? ` · ${dur(dayHours(d))} de estrada` : ""}</div></div>
+        ${splitPlaces(d.pontos).length ? `<div class="rbbox"><div class="rblabel">O que tem no dia</div><div>${splitPlaces(d.pontos).map(esc).join(" · ")}</div></div>` : ""}
+        ${hasRoute(d) || d.saida ? `<div class="rbbox"><div class="rblabel">Horário</div><div>${d.saida ? `Saída <b>${hhmm(toH(d.saida))}</b>` : "Saída —"}${ar != null && isRoad(d) ? ` · chegada <b>~${hhmm(ar)}</b>` : ""}${isRoad(d) && dayHours(d) ? ` · ${dur(dayHours(d))} de estrada` : ""}${d.trilha ? ` · trilha ${esc(d.trilha)}` : ""}${d.terra ? " · tem trecho de terra" : ""}</div></div>` : ""}
+        ${hasRoute(d) ? `
         ${st.length > 1 ? `<div class="rbbox"><div class="rblabel">Caminho</div><div class="rbpath">${st.map(s => `<span>${esc(s.name)}<small>${s.km ? "km " + num(s.km) + " · " : ""}~${hhmm(s.eta)}</small></span>`).join("<i>↓</i>")}</div></div>` : ""}
         <div class="rbbox"><div class="rblabel">Abastecimento</div><div data-fuel="${d.id}" data-compact="1">—</div></div>` : ""}
         <div class="rbbox"><div class="rblabel">Tempo</div><div data-wx="${d.id}">—</div></div>
@@ -927,6 +1102,7 @@ export function afterRender(sub) {
   fillWx(); fillFuel();
   if (sub === "mapa") { if (mapView?.alive()) updateMap(); else { mapView = null; mountMap(); } } else mapView = null;
   if (sub === "checklist") bindChecklist();
+  if (sub === "gastos") bindGastos();
   if (sub === "pendencias") bindPendencias();
   if (sub === "revisao") bindRevisao();
   if (sub === "fotos") bindFotos();
@@ -952,6 +1128,9 @@ document.addEventListener("click", async e => {
       for (let i = 0; i < span; i++) list.push({ id: newId(), tipo: "estrada", origem: i === 0 ? trip.origem : "", destino: i === span - 1 ? trip.origem : i === 0 ? trip.destino : "", via: "", saida: "06:00", pernoite: "", nota: "" });
       saveDays(list); redraw(); toast("Dias criados: agora edite cada um"); break; }
     case "routeCfg": routeCfg(); break;
+    case "rtView": ls.set("rtView", v); redraw(); break;
+    case "openDay": ls.set("rtView", "cards"); redraw(); setTimeout(() => document.getElementById("d-" + id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80); break;
+    case "fuelRetry": b.disabled = true; b.textContent = "buscando…"; fillFuel(); break;
     case "mapStyle": ls.set("mapStyle", v); mapView?.setStyle(v); b.parentElement.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); break;
     case "mapDay": mapDay = v; b.parentElement.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); updateMap(); break;
     case "mapAdd": pointForm(null, null); break;
@@ -965,7 +1144,11 @@ document.addEventListener("click", async e => {
     case "newFuel": expForm(null); break;
     case "editExp": { const x = expenses().find(y => y.id === id); if (x) expForm(x); break; }
     case "viewExp": { const x = expenses().find(y => y.id === id); if (x) toast(`${catOf(x.cat)[1]} · ${brl(x.amount)} · lançado por ${rname(x.rider)}`); break; }
-    case "csv": exportCSV(); break;
+    case "csv": exportCSV(false); break;
+    case "csvMine": exportCSV(true); break;
+    case "gTab": gTab = v; redraw(); break;
+    case "newPrep": prepForm(null); break;
+    case "editPrep": { const x = prepList().find(y => y.id === id); if (x) prepForm(x); else { const y = allExpenses().find(z => z.id === id); if (y) toast("Gasto da preparação: edite em Meus gastos"); } break; }
     case "diWho": diView = v; redraw(); break;
     case "newLog": logForm(null); break;
     case "editLog": { const n = logs().find(x => x.id === id); if (n) logForm(n); break; }

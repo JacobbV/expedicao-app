@@ -4,7 +4,7 @@
 
 > Nome provisório. Evolução do app [Expedição Chapada](https://github.com/JacobbV/expedicao-chapada), que continua separado, só para a viagem do Jacó e do Kaique.
 
-**Status:** em construção · **Versão atual:** 3.0.0 ([histórico](#histórico-de-versões))
+**Status:** em construção · **Versão atual:** 3.1.0 ([histórico](#histórico-de-versões))
 
 ## O que o app vai ter
 
@@ -45,7 +45,8 @@ trips/{id}/private/{uid}/prep    meus gastos (só a própria conta)
 
 | Versão | Data | O que mudou |
 |---|---|---|
-| **3.0.0** | 20/11/2026 | **Roteiro por dias** (estrada, passeio, descanso; km e horas pela estrada; aviso de dia longo com opção de dividir; chegada depois do pôr do sol; Google Maps e Waze) · **Mapa** com a rota em vermelho, 3 estilos e pontos marcados · **Tempo** do dia, hora a hora e no caminho, e clima típico · **Abastecimento** pela autonomia de cada moto, com postos do OpenStreetMap · **Checklist** com lista pronta · **Gastos** divididos com acerto de contas e planilha · **Diário de bordo** com consumo real · **Segurança** (ficha, cheguei bem, localização) · **Modo pilotando** · **Hospedagem** · **Pendências** · **Revisão das motos** · **Fotos** por dia · **Roadbook** para imprimir (A4 ou 10×15) · **Resumo** · **Novidades** (sino) · logo nova na entrada e no Sobre, kit da marca em `marca/` |
+| **3.1.0** | 21/11/2026 | Tipo de dia **Estrada + passeio**; passeio com saída, caminho, km, link, trilha, terra e **cor por circuito**; caminho separado por “·” e com pontos que não são cidade (Nominatim); aviso de lugar não achado; roteiro em **lista** ou detalhado; postos buscados por trechos com servidor reserva e aviso claro quando a busca falha; **🔒 Meus gastos** (preparação privada em `private/{uid}/prep`, “exibir para o grupo”) e **importar planilha** da Expedição Chapada |
+| 3.0.0 | 20/11/2026 | **Roteiro por dias** (estrada, passeio, descanso; km e horas pela estrada; aviso de dia longo com opção de dividir; chegada depois do pôr do sol; Google Maps e Waze) · **Mapa** com a rota em vermelho, 3 estilos e pontos marcados · **Tempo** do dia, hora a hora e no caminho, e clima típico · **Abastecimento** pela autonomia de cada moto, com postos do OpenStreetMap · **Checklist** com lista pronta · **Gastos** divididos com acerto de contas e planilha · **Diário de bordo** com consumo real · **Segurança** (ficha, cheguei bem, localização) · **Modo pilotando** · **Hospedagem** · **Pendências** · **Revisão das motos** · **Fotos** por dia · **Roadbook** para imprimir (A4 ou 10×15) · **Resumo** · **Novidades** (sino) · logo nova na entrada e no Sobre, kit da marca em `marca/` |
 | 2.0.5 | 20/11/2026 | Ícone novo do app (placa verde com seta) na aba do navegador, na tela inicial do celular e na instalação; imagem de pré-visualização para o link no WhatsApp e nas redes; “Compartilhar o app” com WhatsApp, copiar link e compartilhar; “Convidar para esta viagem” no menu da conta |
 | 2.0.4 | 20/11/2026 | **Convite por link:** WhatsApp, copiar ou compartilhar; quem abre vê a viagem e quem convidou, informa a moto e entra (se ainda não tiver conta, cria e o convite abre em seguida). Dono troca o link e remove pilotos; piloto edita a própria moto e pode sair da viagem. **Foto do perfil** (guardada pequena, aparece para os outros pilotos). Regras do Firestore atualizadas (`invites` e novas permissões de piloto) |
 | 2.0.3 | 20/11/2026 | Nova navegação: menu lateral que recolhe no computador (com a lista das suas viagens), sem barra embaixo no computador; foto ou iniciais no canto abrindo o menu da conta (perfil e moto, tema, estilo, compartilhar, sobre e créditos, sair); tema **claro, escuro ou do aparelho** para Placa e Trilha; telas próprias de “Estilo e ajustes” e “Sobre e créditos”; marca do app (placa com seta) |
@@ -69,8 +70,8 @@ trips/{id}/private/{uid}/prep    meus gastos (só a própria conta)
 | [OpenTopoMap](https://opentopomap.org) | estilo Relevo do mapa | CC BY-SA 3.0 |
 | [Leaflet](https://leafletjs.com) | mapa interativo (via unpkg) | BSD-2-Clause |
 | [OSRM](https://project-osrm.org) | rota pela estrada e km de cada dia (servidor público de demonstração) | BSD-2-Clause · dados ODbL |
-| [Overpass API](https://overpass-api.de) | postos de combustível perto da estrada | dados ODbL |
-| [Nominatim](https://nominatim.org) | nome da cidade pela posição | dados ODbL |
+| [Overpass API](https://overpass-api.de) e [overpass.kumi.systems](https://overpass.kumi.systems) (reserva) | postos de combustível perto da estrada | dados ODbL |
+| [Nominatim](https://nominatim.org) | nome da cidade pela posição e pontos que não são cidade (cachoeira, mirante) | dados ODbL |
 | [Open-Meteo](https://open-meteo.com) | previsão, clima típico e busca de cidades | CC BY 4.0 · grátis só para uso não comercial |
 | [GeoNames](https://www.geonames.org) | base das cidades usada pelo Open-Meteo | CC BY 4.0 |
 

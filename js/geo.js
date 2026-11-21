@@ -2,7 +2,7 @@
 // - Busca de cidades: Open-Meteo Geocoding (dados GeoNames, CC BY 4.0)
 // - Rota pela estrada: OSRM (servidor público de demonstração, dados © colaboradores do OpenStreetMap, ODbL)
 // - Postos no caminho: Overpass API (dados © colaboradores do OpenStreetMap, ODbL)
-// - Nome do lugar pela posição: Nominatim (© colaboradores do OpenStreetMap, ODbL)
+// - Nome do lugar pela posição e pontos turísticos (cachoeira, mirante, povoado): Nominatim (© colaboradores do OpenStreetMap, ODbL)
 // Os resultados ficam guardados no aparelho: sem sinal, vale o último que foi baixado.
 import { low } from "./util.js";
 
@@ -37,12 +37,27 @@ export function geocode(text, near) {
       if (!r.ok) throw 0; const j = await r.json();
       let list = (j.results || []).map(x => ({ name: x.name, lat: x.latitude, lng: x.longitude, admin1: x.admin1 || "", cc: x.country_code || "", country: x.country || "", pop: x.population || 0, ppl: (x.feature_code || "").startsWith("PPL") }));
       if (uf) list = list.filter(x => x.cc === "BR" && low(x.admin1) === low(UF[uf]));
-      if (!list.length) { setC(k, null); return null; }
+      if (!list.length) { const poi = await searchPoi(name, uf, near); setC(k, poi); return poi; }
       const score = x => (x.ppl ? 0 : 500) + (near ? distKm(near, x) : 0) - Math.log10(x.pop + 1) * 40 + (x.cc === "BR" ? 0 : near ? 0 : 300);
       list.sort((a, b) => score(a) - score(b));
       const v = list[0]; setC(k, v); return v;
     } catch (e) { return null; } // sem internet: tenta de novo da próxima vez
   });
+}
+// Pontos que não são cidade (Cachoeira do Mosquito, Morro do Pai Inácio, Sítio Triângulo…): busca no OpenStreetMap
+// perto do ponto anterior. O Nominatim pede no máximo 1 busca por segundo: as buscas fazem fila.
+let nomQ = Promise.resolve();
+const nomWait = () => { const p = nomQ.then(() => new Promise(r => setTimeout(r, 1100))); nomQ = p; return p; };
+async function searchPoi(name, uf, near) {
+  const q = encodeURIComponent(name + (uf ? ", " + UF[uf] : ""));
+  const box = near ? `&viewbox=${near.lng - 1.2},${near.lat + 1.2},${near.lng + 1.2},${near.lat - 1.2}&bounded=1` : "";
+  const tryOnce = async extra => {
+    await nomWait();
+    const r = await timeoutFetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=pt-BR&q=${q}${extra}`, 8000);
+    const j = await r.json(); const x = j[0];
+    return x ? { name, lat: +x.lat, lng: +x.lon, admin1: "", cc: "", country: "", poi: true } : null;
+  };
+  try { return (box && await tryOnce(box)) || await tryOnce(near ? "" : "&countrycodes=br"); } catch (e) { throw e; }
 }
 export async function searchPlaces(text) {
   const { name, uf } = splitPlace(text); if (name.length < 2) return [];
@@ -96,26 +111,51 @@ export function pointAt(line, km) {
 function thin(line, n) { if (line.length <= n) return line; const out = [], step = (line.length - 1) / (n - 1); for (let i = 0; i < n; i++) out.push(line[Math.round(i * step)]); return out; }
 
 /* ---------- postos no caminho ---------- */
-// Postos (amenity=fuel) a até ~2 km da estrada, com a distância desde a saída
+// Postos (amenity=fuel) a até ~2 km da estrada, com a distância desde a saída.
+// A rota é consultada em trechos de até ~120 km (servidor público aguenta melhor) e há um servidor reserva.
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+async function overpass(q) {
+  for (const url of OVERPASS) {
+    try {
+      const r = await timeoutFetch(url, 30000, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+      if (r.ok) return await r.json();
+    } catch (e) { /* tenta o próximo */ }
+  }
+  throw new Error("overpass");
+}
+function chunks(line, maxKm) {
+  const out = []; let cur = [line[0]], acc = 0;
+  for (let i = 1; i < line.length; i++) {
+    acc += distKm({ lat: line[i - 1][0], lng: line[i - 1][1] }, { lat: line[i][0], lng: line[i][1] }); cur.push(line[i]);
+    if (acc >= maxKm && i < line.length - 1) { out.push(cur); cur = [line[i]]; acc = 0; }
+  }
+  out.push(cur); return out;
+}
+// Devolve a lista de postos, ou null se o servidor não respondeu (aí NÃO quer dizer que não tem posto)
 export function fuelOnRoute(line) {
-  const pts = thin(line, 90), key = "fuel3:" + pts.filter((_, i) => i % 9 === 0).map(p => p[0].toFixed(2) + "," + p[1].toFixed(2)).join(";");
+  const key = "fuel4:" + thin(line, 12).map(p => p[0].toFixed(2) + "," + p[1].toFixed(2)).join(";");
   const c = getC(key); if (c) return Promise.resolve(c);
   return once(key, async () => {
-    const q = `[out:json][timeout:25];(node(around:2000,${pts.map(p => p.join(",")).join(",")})[amenity=fuel];way(around:2000,${pts.map(p => p.join(",")).join(",")})[amenity=fuel];);out center tags;`;
     try {
-      const r = await timeoutFetch("https://overpass-api.de/api/interpreter", 30000, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" } });
-      if (!r.ok) throw 0; const j = await r.json();
-      const list = (j.elements || []).map(e => {
-        const lat = e.lat ?? e.center?.lat, lng = e.lon ?? e.center?.lon, t = e.tags || {};
-        const a = along(line, { lat, lng });
-        return { lat, lng, km: Math.round(a.km), off: a.off, name: t.name || t.brand || "Posto", brand: t.brand || "", city: t["addr:city"] || "", h24: t.opening_hours === "24/7" };
-      }).filter(x => x.lat != null && x.off < 3).sort((a, b) => a.km - b.km);
-      // um por trecho de ~3 km (o mais perto da estrada)
+      const all = [];
+      for (const part of chunks(line, 120)) {
+        const pts = thin(part, 40).map(p => p.join(",")).join(",");
+        const j = await overpass(`[out:json][timeout:25];(node(around:2000,${pts})[amenity=fuel];way(around:2000,${pts})[amenity=fuel];);out center tags;`);
+        all.push(...(j.elements || []));
+      }
+      const seen = new Set(), list = [];
+      all.forEach(e => {
+        const lat = e.lat ?? e.center?.lat, lng = e.lon ?? e.center?.lon, t = e.tags || {}; if (lat == null || seen.has(e.type + e.id)) return; seen.add(e.type + e.id);
+        const a = along(line, { lat, lng }); if (a.off >= 3) return;
+        list.push({ lat, lng, km: Math.round(a.km), off: a.off, name: t.name || t.brand || "Posto", brand: t.brand || "", city: t["addr:city"] || "", h24: t.opening_hours === "24/7" });
+      });
+      list.sort((a, b) => a.km - b.km);
       const out = []; list.forEach(x => { const last = out[out.length - 1]; if (last && x.km - last.km < 3) { if (x.off < last.off) out[out.length - 1] = x; } else out.push(x); });
       setC(key, out); return out;
     } catch (e) { return null; }
   });
 }
+export const forgetFuel = () => { /* nada guardado quando falha: basta chamar de novo */ };
 // Escolhe as paradas: anda até onde a autonomia segura deixa e para no último posto antes disso
 export function planFuel(cands, total, safe) {
   const out = []; let pos = 0, warn = null;
